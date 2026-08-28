@@ -1,0 +1,287 @@
+/* Leaflet CSS — must be imported before component styles */
+@import 'leaflet/dist/leaflet.css';
+
+/* Tailwind v4 — single import replaces the three v3 @tailwind directives */
+@import "tailwindcss";
+
+/* ── Design tokens (CSS variables) ───────────────────────────────────── */
+:root {
+  --color-background: #050B16;
+  --color-surface: #0A1323;
+  --color-glass: rgba(13,22,38,0.72);
+  --color-cyan: #21D4FD;
+  --color-blue: #2563EB;
+  --color-white: #FFFFFF;
+  --color-muted: #8EA3B4;
+  --color-border: rgba(255,255,255,0.08);
+  --color-glow: rgba(33,212,253,0.28);
+
+  --radius-sm: 14px;
+  --radius-md: 22px;
+  --radius-xl: 28px;
+  --shadow-soft: 0 30px 80px rgba(1, 12, 30, 0.38);
+}
+
+/* ── Login hero + design system ───────────────────────────────────────── */
+.login-hero-panel {
+  background-color: var(--color-slate-950);
+}
+.login-hero-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle at 20% 20%, rgba(56, 189, 248, 0.18), transparent 24%),
+              radial-gradient(circle at 80% 30%, rgba(14, 165, 233, 0.12), transparent 20%);
+  pointer-events: none;
+}
+
+.glass-panel {
+  border-radius: var(--radius-xl);
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  background: rgba(4, 13, 32, 0.75);
+  box-shadow: var(--shadow-soft);
+  backdrop-filter: blur(24px);
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #0ea5e9 0%, #38bdf8 100%);
+  color: white;
+  box-shadow: var(--shadow-glow);
+}
+
+.btn-secondary {
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  color: #f8fafc;
+}
+
+.input-dark {
+  background: rgba(10, 18, 36, 0.9);
+  border-color: rgba(56, 189, 248, 0.18);
+  color: #e2efff;
+}
+
+/* ── Base ──────────────────────────────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-white);
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Scrollbar ─────────────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #345b83 #071227;
+}
+*::-webkit-scrollbar        { width: 6px; height: 6px; }
+*::-webkit-scrollbar-track  { background: #071227; }
+*::-webkit-scrollbar-thumb  { background: #345b83; border-radius: 999px; }
+*::-webkit-scrollbar-thumb:hover { background: #4ea6f5; }
+
+/* ── Leaflet popup overrides for light theme ───────────────────────────────── */
+.leaflet-popup-content-wrapper {
+  border-radius: 10px !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.12) !important;
+  border: 1px solid #0f172a !important;
+}
+.leaflet-popup-content { margin: 12px 14px !important; }
+.leaflet-popup-tip { background: #071227 !important; }
+
+/* ── Utility classes used across the app ────────────────────────────────── */
+.card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.card-hover:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  transition: box-shadow 0.15s ease;
+}
+
+.section-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.text-link {
+  font-size: 0.75rem;
+  color: #2563eb;
+  font-weight: 500;
+}
+.text-link:hover { color: #1d4ed8; text-decoration: underline; }
+
+/* ── Page fade-in ─────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-enter { animation: fadeIn 0.2s ease both; }
+
+/* ── Traffic map light overrides ───────────────────────────────────────── */
+.leaflet-container { background: #e8edf2 !important; }
+
+/* ── Homepage hero animation ───────────────────────────────────────────── */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+@keyframes vehicleSlide {
+  0%   { transform: translateX(-60px); opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translateX(60px); opacity: 0; }
+}
+@keyframes detectionBox {
+  0%   { opacity: 0; transform: scale(0.8); }
+  20%  { opacity: 1; transform: scale(1); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-scan     { animation: scanLine 3s linear infinite; }
+.animate-blink    { animation: blink 1.2s ease-in-out infinite; }
+.animate-float    { animation: float 3s ease-in-out infinite; }
+.animate-slide-up { animation: slideUp 0.6s ease both; }
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradientShift 4s ease infinite;
+}
+
+/* ── App layout primitives ─────────────────────────────────────────────── */
+.app-container { display: flex; height: 100vh; overflow: hidden; background: var(--color-slate-950); }
+.app-sidebar { background: var(--color-surface-0); border-right: 1px solid var(--color-surface-200); box-shadow: var(--shadow-sm); }
+.app-topbar { background: var(--color-surface-0); border-bottom: 1px solid var(--color-surface-200); box-shadow: var(--shadow-sm); }
+.app-main { flex: 1; overflow-y: auto; padding: 1.5rem; }
+
+/* ── Scrollbar ─────────────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 #f1f5f9;
+}
+*::-webkit-scrollbar        { width: 5px; height: 5px; }
+*::-webkit-scrollbar-track  { background: #f1f5f9; }
+*::-webkit-scrollbar-thumb  { background: #cbd5e1; border-radius: 3px; }
+*::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* ── Leaflet popup overrides for light theme ───────────────────────────── */
+.leaflet-popup-content-wrapper {
+  border-radius: 10px !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.12) !important;
+  border: 1px solid #e2e8f0 !important;
+}
+.leaflet-popup-content { margin: 12px 14px !important; }
+.leaflet-popup-tip { background: white !important; }
+
+/* ── Utility classes used across the app ──────────────────────────────── */
+.card {
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.04);
+}
+
+.card-hover:hover {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+  transition: box-shadow 0.15s ease;
+}
+
+.section-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.text-link {
+  font-size: 0.75rem;
+  color: #2563eb;
+  font-weight: 500;
+}
+.text-link:hover { color: #1d4ed8; text-decoration: underline; }
+
+/* ── Page fade-in ──────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-enter { animation: fadeIn 0.2s ease both; }
+
+/* ── Traffic map light overrides ───────────────────────────────────────── */
+.leaflet-container { background: #e8edf2 !important; }
+
+/* ── Homepage hero animation ───────────────────────────────────────────── */
+@keyframes scanLine {
+  0%   { transform: translateY(-100%); opacity: 0.7; }
+  100% { transform: translateY(400px); opacity: 0; }
+}
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+@keyframes pulse-ring {
+  0%   { transform: scale(0.8); opacity: 0.8; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+@keyframes vehicleSlide {
+  0%   { transform: translateX(-60px); opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { transform: translateX(60px); opacity: 0; }
+}
+@keyframes detectionBox {
+  0%   { opacity: 0; transform: scale(0.8); }
+  20%  { opacity: 1; transform: scale(1); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-8px); }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes gradientShift {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+.animate-scan     { animation: scanLine 3s linear infinite; }
+.animate-blink    { animation: blink 1.2s ease-in-out infinite; }
+.animate-float    { animation: float 3s ease-in-out infinite; }
+.animate-slide-up { animation: slideUp 0.6s ease both; }
+.animate-gradient {
+  background-size: 200% 200%;
+  animation: gradientShift 4s ease infinite;
+}
+
+/* ── App layout primitives ─────────────────────────────────────────────── */
+.app-container { display: flex; height: 100vh; overflow: hidden; background: var(--color-surface-50); }
+.app-sidebar { background: var(--color-surface-0); border-right: 1px solid var(--color-surface-200); box-shadow: var(--shadow-sm); }
+.app-topbar { background: var(--color-surface-0); border-bottom: 1px solid var(--color-surface-200); box-shadow: var(--shadow-sm); }
+.app-main { flex: 1; overflow-y: auto; padding: 1.5rem; }
+

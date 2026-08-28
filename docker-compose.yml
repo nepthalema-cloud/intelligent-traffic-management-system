@@ -1,0 +1,211 @@
+version: '3.8'
+
+services:
+  # ── Infrastructure ────────────────────────────────────────────────────────
+
+  db:
+    image: postgres:15-alpine
+    container_name: traffic_db
+    environment:
+      POSTGRES_DB: traffic_management
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: traffic_redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Media Gateway (Phase 5) ───────────────────────────────────────────────
+  # MediaMTX accepts RTSP from cameras/FFmpeg and serves HLS to the browser.
+  # RTSP credentials are NEVER forwarded to the browser.
+  # Browser receives only: http://localhost:8888/{stream_path}/index.m3u8
+
+  mediamtx:
+    image: bluenviron/mediamtx:latest
+    container_name: traffic_mediamtx
+    ports:
+      - "8554:8554"   # RTSP input (cameras, FFmpeg test stream)
+      - "8888:8888"   # HLS output (browser)
+      - "8889:8889"   # WebRTC output (future Phase 6)
+    volumes:
+      - ./docker/mediamtx.yml:/mediamtx.yml:ro
+    restart: unless-stopped
+
+  # ── Test RTSP source (Phase 5 — development only) ─────────────────────────
+  # Re-streams a traffic video file as RTSP using FFmpeg.
+  # This is an EXPLICIT TEST SOURCE — NOT a real CCTV camera.
+  # The camera record in Django must have description starting with "TEST"
+  # so the frontend displays "Test Source" not "Live CCTV".
+  # Replace this with a real camera RTSP URL in production.
+
+  test-rtsp-source:
+    image: linuxserver/ffmpeg:latest
+    container_name: traffic_test_rtsp
+    # Loop the test video and push to MediaMTX as RTSP
+    # Download a real traffic video to docker/test_traffic.mp4 first.
+    # If the file doesn't exist, this service will error — that's expected.
+    entrypoint: >
+      ffmpeg -re -stream_loop -1
+             -i /test_traffic.mp4
+             -c:v libx264 -preset ultrafast -tune zerolatency
+             -f rtsp -rtsp_transport tcp
+             rtsp://mediamtx:8554/test-camera
+    volumes:
+      - ./docker/test_traffic.mp4:/test_traffic.mp4:ro
+    depends_on:
+      - mediamtx
+    restart: unless-stopped
+    profiles:
+      - ai   # Only starts when: docker compose --profile ai up
+
+  # ── Django Backend ────────────────────────────────────────────────────────
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: traffic_backend
+    # Use Daphne (ASGI) instead of runserver for WebSocket support
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    volumes:
+      - ./backend:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.development
+      - DEBUG=True
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_NAME=traffic_management
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MEDIAMTX_URL=http://mediamtx:8888
+      - MEDIAMTX_RTSP=rtsp://mediamtx:8554
+
+  # ── Celery Worker ────────────────────────────────────────────────────────
+
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: traffic_celery_worker
+    command: celery -A config worker -l info -c 2
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.development
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DB_HOST=db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=traffic_management
+    profiles:
+      - celery
+
+  # ── Celery Beat ──────────────────────────────────────────────────────────
+
+  celery-beat:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: traffic_celery_beat
+    command: celery -A config beat -l info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DJANGO_SETTINGS_MODULE=config.settings.development
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - DB_HOST=db
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=traffic_management
+    profiles:
+      - celery
+
+  # ── AI Vehicle Detection Service ─────────────────────────────────────────
+  # Production-resilient: never exits permanently, uses exponential backoff.
+  # Connects to MediaMTX RTSP, runs YOLOv8, posts measurements + violations.
+
+  ai-vehicle-detection:
+    build:
+      context: ./ai-services/vehicle_detection
+      dockerfile: Dockerfile
+    container_name: traffic_ai_detection
+    volumes:
+      - ./ai-services/vehicle_detection:/app
+      - ./ai-services/vehicle_detection/evidence_frames:/app/evidence_frames
+    environment:
+      - DJANGO_API_URL=http://backend:8000
+      - AI_SERVICE_USERNAME=ai_service
+      - AI_SERVICE_PASSWORD=AiService2026!
+      - CAMERA_ID=1
+      - RTSP_URL=rtsp://mediamtx:8554/test-camera
+      - YOLO_MODEL=yolov8n.pt
+      - DETECTION_CONFIDENCE=0.4
+      - MEASUREMENT_INTERVAL_SECONDS=30
+      - SPEED_ESTIMATION_ENABLED=false
+      - MAX_RECONNECT_ATTEMPTS=99
+      - RECONNECT_DELAY_SECONDS=5
+    depends_on:
+      - backend
+      - mediamtx
+    restart: unless-stopped
+    profiles:
+      - ai
+
+  # ── React Frontend ────────────────────────────────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: traffic_frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+    # No VITE_API_BASE_URL / VITE_WS_URL here so browser clients derive the
+    # backend host from their current page origin. This enables LAN access
+    # from another PC without hardcoded localhost.
+
+volumes:
+  postgres_data:

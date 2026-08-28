@@ -1,0 +1,9 @@
+# Base requirements - core dependencies for all environments
+Django>=6.0.0
+djangorestframework>=3.14.0
+django-cors-headers>=4.0.0
+djangorestframework-simplejwt>=5.3.0
+psycopg2-binary>=2.9.0
+redis>=5.0.0
+celery>=5.3.0
+python-dotenv>=1.0.0

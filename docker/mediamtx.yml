@@ -1,0 +1,35 @@
+# MediaMTX configuration — Phase 5
+# RTSP input, HLS output for browser playback.
+# Credentials are only present in the AI service environment — never in browser responses.
+
+logLevel: info
+logDestinations: [stdout]
+
+# RTSP server (cameras and FFmpeg test stream push here)
+rtsp: yes
+rtspAddress: :8554
+rtspsAddress: :8322
+rtpAddress: :8000
+rtcpAddress: :8001
+protocols: [multicast, udp, tcp]
+encryption: "no"
+
+# HLS server (browser reads from here — no credentials)
+hls: yes
+hlsAddress: :8888
+hlsAlwaysRemux: yes
+hlsSegmentCount: 3
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+hlsSegmentMaxSize: 50MB
+hlsEncryption: no
+hlsAllowOrigin: "*"
+
+# WebRTC (Phase 6)
+webrtc: yes
+webrtcAddress: :8889
+
+# No authentication on MediaMTX in dev — prod should add source IPs restriction
+paths:
+  all:
+    source: publisher
