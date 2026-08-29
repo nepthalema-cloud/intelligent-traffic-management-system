@@ -79,36 +79,36 @@ export function Sidebar({ open, onClose }: SidebarProps) {
       )}
 
       <aside className={[
-        'fixed top-0 left-0 z-30 flex h-full w-[220px] flex-col',
+        'fixed top-0 left-0 z-30 flex h-full w-[240px] flex-col',
         'transform transition-transform duration-200 ease-in-out',
         open ? 'translate-x-0' : '-translate-x-full',
         'lg:relative lg:translate-x-0 lg:z-auto',
       ].join(' ')}>
 
         {/* Brand */}
-        <div className="flex h-[60px] shrink-0 items-center gap-2.5 px-5">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm">
+        <div className="sidebar-brand">
+          <div className="sidebar-brand-mark">
             <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" strokeWidth="0"/>
               <path fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
             </svg>
           </div>
           <div>
-            <p className="text-sm font-semibold text-slate-900 leading-tight">TrafficOps</p>
-            <p className="text-[10px] text-slate-400 leading-none mt-0.5">AI Traffic Management</p>
+            <p className="sidebar-brand-name">TrafficOps</p>
+            <p className="sidebar-brand-subtitle">AI Traffic Management</p>
           </div>
         </div>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3" aria-label="Main navigation">
+        <nav className="sidebar-nav" aria-label="Main navigation">
           {sections.map((section, si) => (
-            <div key={si} className={si > 0 ? 'mt-5' : ''}>
+            <div key={si} className={si > 0 ? 'sidebar-section' : ''}>
               {section.title && (
-                <p className="px-2 mb-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+                <p className="sidebar-section-title">
                   {section.title}
                 </p>
               )}
-              <ul className="space-y-0.5" role="list">
+              <ul className="sidebar-list" role="list">
                 {section.items.map(item => (
                   <li key={item.to}>
                     <NavLink
@@ -116,15 +116,13 @@ export function Sidebar({ open, onClose }: SidebarProps) {
                       end={item.to === '/dashboard'}
                       onClick={() => onClose()}
                       className={({ isActive }) => [
-                        'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium transition-all duration-100',
-                        isActive
-                          ? 'bg-blue-50 text-blue-700'
-                          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900',
+                        'sidebar-link',
+                        isActive ? 'sidebar-link-active' : '',
                       ].join(' ')}
                     >
                       {({ isActive }) => (
                         <>
-                          <span className={isActive ? 'text-blue-600' : 'text-slate-400'} aria-hidden="true">
+                          <span className={isActive ? 'sidebar-link-icon-active' : 'sidebar-link-icon'} aria-hidden="true">
                             {item.icon}
                           </span>
                           {item.label}
@@ -140,14 +138,14 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
         {/* User info */}
         {user && (
-          <div className="border-t border-slate-100 px-4 py-3">
+          <div className="sidebar-user-card">
             <div className="flex items-center gap-2.5">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">
+              <div className="sidebar-user-avatar">
                 {(user.first_name?.[0] ?? user.username[0]).toUpperCase()}
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-semibold text-slate-900 truncate">{user.username}</p>
-                <p className="text-[10px] text-slate-400 truncate">{user.roles[0] ?? 'No role'}</p>
+                <p className="sidebar-user-name">{user.username}</p>
+                <p className="sidebar-user-role">{user.roles[0] ?? 'No role'}</p>
               </div>
             </div>
           </div>

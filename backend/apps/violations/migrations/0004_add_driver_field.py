@@ -13,6 +13,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("violations", "0003_phase5_ai_fields"),
+        ("drivers", "0001_initial"),
     ]
 
     operations = [
