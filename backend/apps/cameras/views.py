@@ -17,10 +17,13 @@ import os
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.core import signing
+from django.http import HttpResponse, FileResponse
+from django.urls import reverse
 
 from apps.common.pagination import StandardResultsPagination
 from apps.common.responses import created_response, error_response, success_response
@@ -618,3 +621,151 @@ class AnalysisDownloadView(APIView):
                     s['image_url'] = self._absolute_media_url(request, s.get('image_url') or s.get('image'))
 
         return success_response(data={'annotated_video': annotated, 'result': result, 'full_results': full_results})
+
+
+class AnalysisStreamTokenView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request: Request, job_id: int) -> Response:
+        from apps.cameras.models import TemporaryVideoAnalysis
+        job = get_object_or_404(TemporaryVideoAnalysis, pk=job_id, user=request.user)
+        if job.status != TemporaryVideoAnalysis.STATUS_DONE:
+            return error_response('Job not completed yet.', status_code=status.HTTP_400_BAD_REQUEST)
+
+        if not job.annotated_video:
+            return error_response('No annotated video available for this job.', status_code=status.HTTP_404_NOT_FOUND)
+
+        payload = {'job_id': job.pk, 'user_id': request.user.pk}
+        token = signing.dumps(payload, salt='video-stream')
+        stream_path = request.build_absolute_uri(f"/api/v1/cameras/upload-analysis/{job.pk}/stream/?s={token}")
+        return success_response(data={'url': stream_path})
+
+
+class AnalysisStreamView(APIView):
+    # Public endpoint that validates a short-lived signed token and serves the annotated video with Range support
+    permission_classes = [AllowAny]
+
+    def _parse_range(self, range_header: str, file_size: int):
+        # simple bytes=start-end parser
+        try:
+            if not range_header or not range_header.startswith('bytes='):
+                return None
+            ranges = range_header.split('=')[1].strip().split('-')
+            start = int(ranges[0]) if ranges[0] else 0
+            end = int(ranges[1]) if len(ranges) > 1 and ranges[1] else file_size - 1
+            if start > end or start < 0:
+                return None
+            return (start, min(end, file_size - 1))
+        except Exception:
+            return None
+
+    def get(self, request: Request, job_id: int) -> HttpResponse:
+        s = request.query_params.get('s') or request.GET.get('s')
+        if not s:
+            return HttpResponse(status=403)
+        try:
+            data = signing.loads(s, salt='video-stream', max_age=300)
+            if int(data.get('job_id')) != int(job_id):
+                return HttpResponse(status=403)
+        except signing.BadSignature:
+            return HttpResponse(status=403)
+        except signing.SignatureExpired:
+            return HttpResponse(status=403)
+
+        from apps.cameras.models import TemporaryVideoAnalysis
+        job = get_object_or_404(TemporaryVideoAnalysis, pk=job_id)
+        if not job.annotated_video:
+            return HttpResponse(status=404)
+
+        path = job.annotated_video.path
+        if not path or not os.path.exists(path):
+            return HttpResponse(status=404)
+
+        file_size = os.path.getsize(path)
+        range_header = request.META.get('HTTP_RANGE', '')
+        range_parsed = self._parse_range(range_header, file_size)
+
+        if range_parsed:
+            start, end = range_parsed
+            length = end - start + 1
+            with open(path, 'rb') as fh:
+                fh.seek(start)
+                data = fh.read(length)
+            resp = HttpResponse(data, status=206, content_type='video/mp4')
+            resp['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+            resp['Accept-Ranges'] = 'bytes'
+            resp['Content-Length'] = str(length)
+            return resp
+
+        # Full response
+        return FileResponse(open(path, 'rb'), content_type='video/mp4')
+
+
+class AnalysisDiscardView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request: Request, job_id: int) -> Response:
+        from apps.cameras.models import TemporaryVideoAnalysis
+        job = get_object_or_404(TemporaryVideoAnalysis, pk=job_id, user=request.user)
+
+        # remove uploaded file
+        try:
+            if job.upload and hasattr(job.upload, 'path') and job.upload.path and os.path.exists(job.upload.path):
+                os.remove(job.upload.path)
+        except Exception:
+            pass
+
+        # remove annotated video
+        try:
+            if job.annotated_video and hasattr(job.annotated_video, 'path') and job.annotated_video.path and os.path.exists(job.annotated_video.path):
+                os.remove(job.annotated_video.path)
+        except Exception:
+            pass
+
+        # remove generated result files referenced in result_json
+        try:
+            result = job.result_json or {}
+            for key in ('results_file', 'csv_file', 'pdf_file'):
+                p = result.get(key)
+                if p:
+                    p = p.replace('\\', '/').lstrip('/')
+                    full = os.path.join(settings.MEDIA_ROOT, p)
+                    if os.path.exists(full):
+                        os.remove(full)
+        except Exception:
+            pass
+
+        # remove snapshots directory if present (same directory as results_file or annotated video)
+        try:
+            # Try to infer the annotated/results directory
+            snapshots_dir = None
+            # Prefer directory from results_file in result_json
+            result = job.result_json or {}
+            rf = result.get('results_file')
+            if rf:
+                rf = rf.replace('\\', '/').lstrip('/')
+                results_full = os.path.join(settings.MEDIA_ROOT, rf)
+                results_dir = os.path.dirname(results_full)
+                snapshots_dir = os.path.join(results_dir, 'snapshots')
+
+            # Fallback: infer from annotated_video path if not found
+            if not snapshots_dir or not os.path.exists(snapshots_dir):
+                if job.annotated_video and hasattr(job.annotated_video, 'path') and job.annotated_video.path:
+                    ann_dir = os.path.dirname(job.annotated_video.path)
+                    candidate = os.path.join(ann_dir, 'snapshots')
+                    if os.path.exists(candidate):
+                        snapshots_dir = candidate
+
+            # Safety: ensure snapshots_dir is under MEDIA_ROOT before removing
+            if snapshots_dir and os.path.exists(snapshots_dir):
+                # Normalize paths for safe commonpath check
+                media_root_norm = os.path.normpath(os.path.abspath(settings.MEDIA_ROOT))
+                snaps_norm = os.path.normpath(os.path.abspath(snapshots_dir))
+                if os.path.commonpath([media_root_norm, snaps_norm]) == media_root_norm:
+                    import shutil
+                    shutil.rmtree(snaps_norm)
+        except Exception:
+            pass
+
+        job.delete()
+        return success_response(data={}, message='Temporary analysis discarded')

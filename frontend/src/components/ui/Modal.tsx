@@ -24,8 +24,8 @@ export function Modal({ open, onClose, title, children, maxWidth = 'md' }: Modal
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm"
       role="dialog" aria-modal="true" aria-labelledby="modal-title">
       <div className="absolute inset-0" onClick={onClose} aria-hidden="true" />
-      <div className={`relative w-full ${widths[maxWidth]} rounded-2xl border border-slate-200 bg-white shadow-xl`}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+      <div className={`relative w-full ${widths[maxWidth]} max-h-[calc(100vh-2rem)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl`}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-6 py-4">
           <h2 id="modal-title" className="text-base font-semibold text-slate-900">{title}</h2>
           <button type="button" onClick={onClose}
             className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition-colors"
@@ -35,7 +35,7 @@ export function Modal({ open, onClose, title, children, maxWidth = 'md' }: Modal
             </svg>
           </button>
         </div>
-        <div className="px-6 py-5">{children}</div>
+        <div className="max-h-[calc(100vh-9rem)] overflow-y-auto px-6 py-5">{children}</div>
       </div>
     </div>
   )

@@ -12,7 +12,6 @@ import { StatusBadge } from '@/components/ui/StatusBadge'
 // CameraStreamPlayer removed — legacy live stream viewer
 import { CameraConnectionBadge } from '@/components/cameras/CameraConnectionBadge'
 import { BrowserWebcamPanel } from '@/components/cameras/BrowserWebcamPanel'
-import { UploadVideoPanel } from '@/components/cameras/UploadVideoPanel'
 import { AddCameraModal } from '@/components/cameras/AddCameraModal'
 import { useAuthStore } from '@/store/authStore'
 import { formatRelative } from '@/utils/time'
@@ -345,25 +344,6 @@ export function CamerasPage() {
             )}
             <div className="max-w-sm">
               <BrowserWebcamPanel onMeasurement={count => setWebcamVehicles(v => v + count)} />
-            </div>
-          </section>
-
-          {/* ④ Upload Video Analysis (ephemeral) */}
-          <section>
-            <div className="flex items-center gap-2 mb-1">
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Upload Video Analysis
-              </h2>
-              <span className="rounded-full bg-slate-200 text-slate-600 px-2 py-0.5 text-[10px] font-semibold border border-slate-300">
-                DEMO / TEMPORARY
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 mb-3">
-              Upload a prerecorded video file and run a temporary AI analysis. Results and annotated
-              video are available for download; no persistent camera record is created.
-            </p>
-            <div className="max-w-md">
-              <UploadVideoPanel />
             </div>
           </section>
 

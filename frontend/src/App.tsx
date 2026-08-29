@@ -17,6 +17,8 @@ import { AuditLogPage }        from '@/pages/AuditLogPage'
 import { UserManagementPage }  from '@/pages/UserManagementPage'
 import { AnalyticsPage }       from '@/pages/AnalyticsPage'
 import { VideoAnalysisPage }   from '@/pages/VideoAnalysisPage'
+import { ProfilePage }         from '@/pages/ProfilePage'
+import { SettingsPage }        from '@/pages/SettingsPage'
 import { HomePage }            from '@/pages/HomePage'
 import { ROLES } from '@/types/api'
 
@@ -105,6 +107,8 @@ export default function App() {
             <Route index element={<Navigate to="/dashboard" replace />} />
             {/* Dashboard — all authenticated roles */}
             <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/profile" element={<ProfilePage />} />
+            <Route path="/settings" element={<SettingsPage />} />
 
             {/* Incidents */}
             <Route element={<ProtectedRoute roles={INCIDENT_READ_ROLES} />}>

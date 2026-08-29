@@ -9,6 +9,7 @@ from apps.cameras.views import (
     CameraStatusView, CameraTestView,
     SensorDetailView, SensorHealthView, SensorListView, SensorStatusView,
     UploadVideoAnalysisView, AnalysisStatusView, AnalysisDownloadView,
+    AnalysisStreamTokenView, AnalysisStreamView, AnalysisDiscardView,
 )
 
 app_name = "cameras"
@@ -34,4 +35,7 @@ urlpatterns = [
     path("upload-analysis/", UploadVideoAnalysisView.as_view(), name="upload-analysis"),
     path("upload-analysis/<int:job_id>/", AnalysisStatusView.as_view(), name="upload-analysis-status"),
     path("upload-analysis/<int:job_id>/download/", AnalysisDownloadView.as_view(), name="upload-analysis-download"),
+    path("upload-analysis/<int:job_id>/stream-token/", AnalysisStreamTokenView.as_view(), name="upload-analysis-stream-token"),
+    path("upload-analysis/<int:job_id>/stream/", AnalysisStreamView.as_view(), name="upload-analysis-stream"),
+    path("upload-analysis/<int:job_id>/discard/", AnalysisDiscardView.as_view(), name="upload-analysis-discard"),
 ]

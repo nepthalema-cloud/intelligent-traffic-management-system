@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
-import { uploadVideo, checkJobStatus, downloadResults } from '@/services/uploadVideo.service'
+import { uploadVideo, checkJobStatus, downloadResults, createAuthenticatedMediaUrl, getAnnotatedStreamUrl, discardAnalysis, rememberVideoAnalysisJob } from '@/services/uploadVideo.service'
 
 function ProgressBar({ pct }: { pct: number }) {
   return (
@@ -142,7 +142,7 @@ function ReviewTabs({ activeTab, setActiveTab }: { activeTab: string, setActiveT
   )
 }
 
-function VehicleCard({ vehicle, isSelected, onSelect, isCalibrated, plateConfidenceThreshold }: { vehicle:any, isSelected:boolean, onSelect:(id:string|number)=>void, isCalibrated:boolean, plateConfidenceThreshold:number }) {
+function VehicleCard({ vehicle, isSelected, onSelect, isCalibrated, plateConfidenceThreshold, imageSrc }: { vehicle:any, isSelected:boolean, onSelect:(id:string|number)=>void, isCalibrated:boolean, plateConfidenceThreshold:number, imageSrc?: string | null }) {
   const displayPlate = ((vehicle.plate_confidence ?? 0) >= plateConfidenceThreshold && vehicle.plate)
     ? vehicle.plate
     : 'Not confidently detected'
@@ -156,7 +156,7 @@ function VehicleCard({ vehicle, isSelected, onSelect, isCalibrated, plateConfide
       className={`group relative text-left rounded-2xl border p-3 transition ${isSelected ? 'border-blue-500 bg-blue-50 shadow-sm' : 'border-slate-200 bg-white hover:border-slate-300 hover:shadow-sm'}`}>
       <div className="flex gap-3">
         <div className="h-20 w-32 overflow-hidden rounded-xl bg-slate-100">
-          {vehicle.thumbnail ? <img src={vehicle.thumbnail} alt={`Track ${vehicle.track_id}`} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs text-slate-400">No image</div>}
+          {vehicle.thumbnail ? <img src={imageSrc ?? vehicle.thumbnail} alt={`Track ${vehicle.track_id}`} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs text-slate-400">No image</div>}
         </div>
         <div className="flex-1">
           <div className="text-sm font-semibold text-slate-800">ID {vehicle.track_id}</div>
@@ -179,22 +179,25 @@ function VehicleCard({ vehicle, isSelected, onSelect, isCalibrated, plateConfide
   )
 }
 
-function SnapshotGallery({ snapshots, onSeek }: { snapshots?: any[], onSeek:(t:number)=>void }) {
+function SnapshotGallery({ snapshots, onSeek, imageUrls }: { snapshots?: any[], onSeek:(t:number)=>void, imageUrls?: Record<string, string> }) {
   if (!snapshots || snapshots.length === 0) return <div className="text-xs text-slate-500">No notable frames saved.</div>
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      {snapshots.map((snap, idx) => (
-        <button key={idx} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md" onClick={() => onSeek(snap.time)}>
-          <div className="h-28 overflow-hidden bg-slate-100">
-            {snap.image_url ? <img src={snap.image_url} alt={snap.type} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs text-slate-400">No image</div>}
-          </div>
+      {snapshots.map((snap, idx) => {
+        const imageSrc = snap.image_url ? imageUrls?.[snap.image_url] ?? snap.image_url : undefined
+        return (
+          <button key={idx} className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:shadow-md" onClick={() => onSeek(snap.time)}>
+            <div className="h-28 overflow-hidden bg-slate-100">
+              {imageSrc ? <img src={imageSrc} alt={snap.type} className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-xs text-slate-400">No image</div>}
+            </div>
           <div className="p-3 text-left text-xs text-slate-600">
             <div className="font-semibold text-slate-900">{snap.type.replace('_', ' ').toUpperCase()}</div>
             <div>Time: {snap.time.toFixed(2)}s</div>
             <div>Track: {snap.track_id}</div>
-          </div>
-        </button>
-      ))}
+            </div>
+          </button>
+        )
+      })}
     </div>
   )
 }
@@ -259,6 +262,18 @@ export function UploadVideoPanel() {
   const [duration, setDuration] = useState<number | null>(null)
   const [showDevTools, setShowDevTools] = useState(false)
   const [fallbackFrameIndex, setFallbackFrameIndex] = useState(0)
+  const [videoUrl, setVideoUrl] = useState<string | null>(null)
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({})
+  const [mediaLoaded, setMediaLoaded] = useState(false)
+  const isAnalyzing = Boolean(uploading || (jobId && status && status !== 'done' && status !== 'failed'))
+  const lastAutoSelectedVehicle = useRef<string | null>(null)
+  const videoObjectUrlRef = useRef<string | null>(null)
+  const lastResolvedVideoUrlRef = useRef<string | null>(null)
+  const videoUrlRef = useRef<string | null>(null)
+  const imageObjectUrlsRef = useRef<Record<string, string>>({})
+  const statusRef = useRef<string | null>(null)
+  const resultRef = useRef<any | null>(null)
+  const progressRef = useRef<number>(0)
 
   const results = downloadData?.full_results ?? downloadData?.result
   const vehicles = results?.vehicles ?? []
@@ -338,33 +353,218 @@ export function UploadVideoPanel() {
   }
 
   useEffect(() => {
+    statusRef.current = status
+  }, [status])
+
+  useEffect(() => {
+    resultRef.current = result
+  }, [result])
+
+  useEffect(() => {
+    progressRef.current = progressPct
+  }, [progressPct])
+
+  useEffect(() => {
+    videoUrlRef.current = videoUrl
+  }, [videoUrl])
+
+  useEffect(() => {
     if (!downloadData?.annotated_video) renderFallbackPreview()
   }, [downloadData, fallbackFrameIndex])
 
+  // Poll job status while a jobId is active. Polling is started once per jobId
+  // to avoid re-creating intervals when `status` changes frequently.
   useEffect(() => {
-    let t: number | undefined
-    if (jobId && status !== 'done' && status !== 'failed') {
-      t = window.setInterval(async () => {
-        try {
-          const data = await checkJobStatus(jobId)
-          setStatus(data.status)
-          setResult(data.result ?? null)
-          if (data.result && typeof data.result.progress === 'number') setProgressPct(data.result.progress)
-          if (data.status === 'done') {
-            const dl = await downloadResults(jobId)
-            setDownloadData(dl)
-          }
-        } catch (err) {
-          setStatus('failed')
-          try {
-            const resp = (err as any)?.response?.data?.data
-            if (resp && resp.result) setResult(resp.result)
-          } catch {}
-        }
-      }, 1500)
+    if (!jobId) return
+
+    let mounted = true
+    let intervalId: number | undefined
+    const downloadedRef = { done: false }
+
+    const stopPolling = () => {
+      if (intervalId) window.clearInterval(intervalId)
+      intervalId = undefined
     }
-    return () => { if (t) clearInterval(t) }
-  }, [jobId, status])
+
+    const pollOnce = async () => {
+      try {
+        const data = await checkJobStatus(jobId)
+        if (!mounted) return
+        
+        if (data.status !== statusRef.current) {
+          
+          setStatus(data.status)
+        }
+        if (data.result != null && data.result !== resultRef.current) {
+          
+          setResult(data.result)
+        }
+        if (data.result && typeof data.result.progress === 'number' && data.result.progress !== progressRef.current) {
+          
+          setProgressPct(data.result.progress)
+        }
+
+        if (data.status === 'done') {
+          // download results once
+          if (!downloadedRef.done) {
+            downloadedRef.done = true
+            rememberVideoAnalysisJob(jobId)
+            try {
+              const dl = await downloadResults(jobId)
+              if (!mounted) return
+              // only update downloadData if different reference
+              if (dl !== downloadData) {
+                
+                setDownloadData(dl)
+              }
+            } catch (err) {
+              // ignore
+            }
+          }
+          stopPolling()
+        }
+        if (data.status === 'failed') {
+          stopPolling()
+        }
+      } catch (err) {
+        if (!mounted) return
+        
+        setStatus('failed')
+        try {
+          const resp = (err as any)?.response?.data?.data
+          if (resp && resp.result) setResult(resp.result)
+        } catch {}
+        stopPolling()
+      }
+    }
+
+    // initial immediate poll, then interval
+    
+    void pollOnce()
+    intervalId = window.setInterval(() => void pollOnce(), 1500)
+
+    return () => {
+      mounted = false
+      stopPolling()
+    }
+  }, [jobId])
+
+  useEffect(() => {
+    const mediaUrl = downloadData?.annotated_video ?? null
+
+    if (!mediaUrl) {
+      if (videoObjectUrlRef.current) {
+        URL.revokeObjectURL(videoObjectUrlRef.current)
+        videoObjectUrlRef.current = null
+      }
+      lastResolvedVideoUrlRef.current = null
+      setVideoUrl(null)
+      setMediaLoaded(false)
+      return
+    }
+
+    if (lastResolvedVideoUrlRef.current === mediaUrl && videoObjectUrlRef.current) {
+      setVideoUrl(videoObjectUrlRef.current)
+      return
+    }
+
+    let active = true
+
+    async function resolveVideo() {
+      // Prefer a short-lived signed streaming URL (supports Range) for native playback
+      let resolvedUrl: string | null = null
+      try {
+        if (jobId) {
+          resolvedUrl = await getAnnotatedStreamUrl(jobId)
+        }
+      } catch {}
+
+      // If stream token wasn't available, fall back to blob-based authenticated fetch
+      if (!resolvedUrl) {
+        try {
+          resolvedUrl = await createAuthenticatedMediaUrl(mediaUrl)
+        } catch {}
+      }
+
+      if (!active) return
+
+      const nextBlobUrl = resolvedUrl && resolvedUrl.startsWith('blob:') ? resolvedUrl : (resolvedUrl ?? null)
+
+      if (videoObjectUrlRef.current && videoObjectUrlRef.current !== nextBlobUrl) {
+        URL.revokeObjectURL(videoObjectUrlRef.current)
+      }
+
+      if (nextBlobUrl) {
+        videoObjectUrlRef.current = nextBlobUrl
+        lastResolvedVideoUrlRef.current = mediaUrl
+        if (videoUrlRef.current !== nextBlobUrl) setVideoUrl(nextBlobUrl)
+      } else {
+        videoObjectUrlRef.current = null
+        lastResolvedVideoUrlRef.current = null
+        if (videoUrlRef.current !== null) setVideoUrl(null)
+      }
+
+      if (mediaLoaded) setMediaLoaded(false)
+    }
+
+    void resolveVideo()
+
+    return () => {
+      active = false
+    }
+  }, [downloadData?.annotated_video])
+
+  // Resolve authenticated blob URLs for thumbnails/snapshots.
+  // Depend on `downloadData` instead of the derived `vehicles`/`snapshots`
+  // to avoid running this effect every render (those arrays are recreated).
+  useEffect(() => {
+    
+    const urls = Array.from(new Set([
+      ...vehicles.map((vehicle: any) => vehicle.thumbnail).filter(Boolean),
+      ...snapshots.map((snapshot: any) => snapshot.image_url || snapshot.image).filter(Boolean),
+    ]))
+
+    if (!urls.length) {
+      setImageUrls({})
+      return
+    }
+
+    let active = true
+    const nextMap: Record<string, string> = {}
+    const pending = urls.map(async (url) => {
+      const cached = imageObjectUrlsRef.current[url]
+      if (cached) {
+        nextMap[url] = cached
+        return
+      }
+
+      const resolved = await createAuthenticatedMediaUrl(url)
+      if (!active) return
+      if (resolved && resolved.startsWith('blob:')) {
+        imageObjectUrlsRef.current[url] = resolved
+        nextMap[url] = resolved
+      }
+    })
+
+    void Promise.all(pending).then(() => {
+      if (active) setImageUrls(nextMap)
+    })
+
+    return () => {
+      active = false
+    }
+  }, [downloadData])
+
+  useEffect(() => {
+    return () => {
+      if (videoObjectUrlRef.current) {
+        URL.revokeObjectURL(videoObjectUrlRef.current)
+        videoObjectUrlRef.current = null
+      }
+      Object.values(imageObjectUrlsRef.current).forEach((blobUrl) => URL.revokeObjectURL(blobUrl))
+      imageObjectUrlsRef.current = {}
+    }
+  }, [])
 
   useEffect(() => {
     const video = videoRef.current
@@ -372,7 +572,7 @@ export function UploadVideoPanel() {
     video.muted = true
     video.volume = volume
     video.defaultPlaybackRate = playbackRate
-    if (downloadData?.annotated_video) {
+    if (videoUrl) {
       const tryPlay = async () => {
         try {
           await video.play()
@@ -383,10 +583,12 @@ export function UploadVideoPanel() {
       }
       tryPlay()
     }
-  }, [downloadData?.annotated_video, playbackRate, volume])
+  }, [videoUrl, playbackRate, volume])
 
   async function handleUpload() {
     if (!file) return
+    const currentlyAnalyzing = uploading || (jobId && status && status !== 'done' && status !== 'failed')
+    if (currentlyAnalyzing) return
     setUploading(true)
     setSelectedVehicleId(null)
     setActiveTab('review')
@@ -395,9 +597,59 @@ export function UploadVideoPanel() {
       setJobId(id)
       setStatus('pending')
       setProgressPct(1)
+      rememberVideoAnalysisJob(id)
     } catch (err) {
       setStatus('failed')
     } finally { setUploading(false) }
+  }
+
+  async function handleDownloadAnnotated(e: any) {
+    e.preventDefault()
+    if (!jobId) return
+    try {
+      const streamUrl = await getAnnotatedStreamUrl(jobId)
+      if (!streamUrl) return
+      const resp = await fetch(streamUrl)
+      if (!resp.ok) return
+      const blob = await resp.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `annotated_${jobId}.mp4`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      console.error('Download annotated failed', err)
+    }
+  }
+
+  async function handleDiscardAnalysis() {
+    if (!jobId) return
+    const ok = window.confirm('Discard this analysis and delete temporary files?')
+    if (!ok) return
+    try {
+      await discardAnalysis(jobId)
+    } catch (err) {
+      console.error('Discard failed', err)
+    }
+
+    // clear frontend state
+    setDownloadData(null)
+    setResult(null)
+    setJobId(null)
+    setStatus(null)
+    setProgressPct(0)
+    setFile(null)
+    setSelectedVehicleId(null)
+    setVideoUrl(null)
+    if (videoObjectUrlRef.current) {
+      try { URL.revokeObjectURL(videoObjectUrlRef.current) } catch {}
+      videoObjectUrlRef.current = null
+    }
+    Object.values(imageObjectUrlsRef.current).forEach((u) => { try { URL.revokeObjectURL(u) } catch {} })
+    imageObjectUrlsRef.current = {}
   }
 
   const filteredVehicles = vehicles.filter((vehicle:any) => {
@@ -417,6 +669,30 @@ export function UploadVideoPanel() {
     const time = selectedVehicle.first_seen ?? selectedVehicle.last_seen ?? 0
     videoRef.current.currentTime = time
   }, [selectedVehicle])
+
+  useEffect(() => {
+    if (!downloadData || !vehicles.length) {
+      if (selectedVehicleId !== null) {
+        lastAutoSelectedVehicle.current = null
+      }
+      return
+    }
+
+    const nextVehicleId = String(vehicles[0].track_id)
+    if (selectedVehicleId === null && lastAutoSelectedVehicle.current !== nextVehicleId) {
+      lastAutoSelectedVehicle.current = nextVehicleId
+      
+      setSelectedVehicleId(nextVehicleId)
+      return
+    }
+
+    if (selectedVehicleId !== null) {
+      lastAutoSelectedVehicle.current = String(selectedVehicleId)
+    }
+  }, [downloadData, selectedVehicleId, vehicles])
+
+  // NOTE: automatic restoration of previously completed jobs has been disabled
+  // to enforce an explicit upload → analyze → results workflow per-user session.
 
   // Render overlay synchronized to video currentTime by interpolating between frames
   function renderOverlay() {
@@ -542,9 +818,9 @@ export function UploadVideoPanel() {
             <input type="file" accept="video/*" onChange={e => setFile(e.target.files ? e.target.files[0] : null)} className="block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700" />
           </div>
           <div className="flex flex-wrap gap-2 justify-end">
-            <button onClick={handleUpload} disabled={!file || uploading}
+            <button onClick={handleUpload} disabled={!file || isAnalyzing}
               className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
-              {uploading ? 'Uploading…' : 'Start Analysis'}
+              {uploading ? 'Uploading…' : isAnalyzing ? 'Analyzing Video...' : 'Start Analysis'}
             </button>
             <button onClick={() => { if (videoRef.current) videoRef.current.requestFullscreen?.() }}
               className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-100">Fullscreen</button>
@@ -586,23 +862,32 @@ export function UploadVideoPanel() {
                       controls
                       autoPlay
                       muted
-                      className="w-full h-[560px] bg-black object-cover"
+                      src={videoUrl ?? undefined}
+                      className="relative z-0 w-full h-[560px] bg-black object-cover"
                       onLoadedMetadata={() => {
                         const v = videoRef.current
-                        if (v) setDuration(v.duration)
+                        if (v) {
+                          setDuration(v.duration)
+                          setMediaLoaded(true)
+                        }
                       }}
+                      onCanPlay={() => setMediaLoaded(true)}
                       onTimeUpdate={() => {
                         const v = videoRef.current
                         if (v) {
-                          setCurrentTime(v.currentTime)
+                          const newTime = v.currentTime
+                          setCurrentTime(newTime)
                           renderOverlay()
                         }
                       }}
                     >
-                      <source src={downloadData.annotated_video} type="video/mp4" />
                       Your browser does not support the video tag.
                     </video>
-                    <canvas ref={canvasRef} style={{ position: 'absolute', left: 0, top: 0, pointerEvents: 'none' }} />
+                    <canvas
+                      ref={canvasRef}
+                      style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 10 }}
+                      className="pointer-events-none"
+                    />
                   </>
                 ) : (
                   <div className="relative rounded-[28px] bg-slate-950 p-4">
@@ -620,7 +905,7 @@ export function UploadVideoPanel() {
                       <div className="mt-2 text-lg font-semibold text-white">Review and evidence playback</div>
                     </div>
                     <div className="text-right text-sm text-slate-400">
-                      {duration ? `${currentTime.toFixed(1)}s / ${duration.toFixed(1)}s` : 'Loading video...'}
+                      {duration && mediaLoaded ? `${currentTime.toFixed(1)}s / ${duration.toFixed(1)}s` : 'Loading video...'}
                     </div>
                   </div>
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -715,7 +1000,7 @@ export function UploadVideoPanel() {
 
                   <div className="rounded-3xl border border-slate-200 bg-slate-50 p-3">
                     <VirtualList items={filteredVehicles} itemHeight={134} containerHeight={420} renderItem={(vehicle:any) => (
-                      <VehicleCard vehicle={vehicle} isSelected={String(selectedVehicleId) === String(vehicle.track_id)} onSelect={setSelectedVehicleId} isCalibrated={isCalibrated} plateConfidenceThreshold={plateConfidenceThreshold} />
+                      <VehicleCard vehicle={vehicle} isSelected={String(selectedVehicleId) === String(vehicle.track_id)} onSelect={setSelectedVehicleId} isCalibrated={isCalibrated} plateConfidenceThreshold={plateConfidenceThreshold} imageSrc={imageUrls[vehicle.thumbnail] ?? vehicle.thumbnail} />
                     )} />
                   </div>
                 </div>
@@ -798,7 +1083,11 @@ export function UploadVideoPanel() {
               </div>
               <div className="flex flex-wrap gap-3">
                 {downloadData.annotated_video && (
-                  <a href={downloadData.annotated_video} target="_blank" rel="noreferrer" className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800">Annotated MP4</a>
+                  <>
+                    <button onClick={handleDownloadAnnotated} className="rounded-2xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800">Download Annotated Video</button>
+                    <button onClick={() => window.open(downloadData.annotated_video, '_blank')} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">Open raw URL</button>
+                    <button onClick={handleDiscardAnalysis} className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 hover:bg-red-100">Discard Analysis</button>
+                  </>
                 )}
                 {downloadData.result && (
                   <button onClick={(e)=>{e.preventDefault(); const blob = new Blob([JSON.stringify(downloadData.full_results ?? downloadData.result, null, 2)], {type:'application/json'}); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'results.json'; a.click();}} className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50">JSON export</button>

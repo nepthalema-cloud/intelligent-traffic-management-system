@@ -10,6 +10,8 @@ import csv
 import math
 import logging
 import platform
+import shutil
+import subprocess
 from datetime import datetime
 
 import cv2
@@ -20,6 +22,50 @@ logger = logging.getLogger(__name__)
 # Use the centralized loader to avoid duplicate loading logic
 from apps.cameras.detector_loader import get_vehicle_detector
 from apps.cameras.pipeline import analyze_frame
+
+
+def _reencode_browser_compatible_mp4(source_path: str) -> str:
+    """Re-encode the finished MP4 into a Chromium-friendly H.264/AAC-like MP4 profile.
+
+    The analysis pipeline still writes the annotated frames and keeps the same output path,
+    but the final artifact is re-encoded with libx264 and yuv420p to avoid the unsupported
+    mp4v/mpeg4 output that Chromium reports as DEMUXER_ERROR_NO_SUPPORTED_STREAMS.
+    """
+    if not source_path or not os.path.exists(source_path):
+        return source_path
+
+    ffmpeg_bin = shutil.which('ffmpeg')
+    if not ffmpeg_bin:
+        logger.warning('ffmpeg not found; leaving generated annotated video as-is.')
+        return source_path
+
+    tmp_path = f'{source_path}.tmp_h264.mp4'
+    cmd = [
+        ffmpeg_bin,
+        '-y',
+        '-hide_banner',
+        '-loglevel', 'error',
+        '-i', source_path,
+        '-c:v', 'libx264',
+        '-pix_fmt', 'yuv420p',
+        '-profile:v', 'high',
+        '-level', '4.0',
+        '-movflags', '+faststart',
+        '-an',
+        tmp_path,
+    ]
+
+    try:
+        completed = subprocess.run(cmd, capture_output=True, text=True)
+        if completed.returncode != 0:
+            logger.warning('H.264 re-encode failed for %s: %s', source_path, completed.stderr.strip() or completed.stdout.strip() or 'unknown ffmpeg error')
+            return source_path
+        if os.path.exists(tmp_path):
+            os.replace(tmp_path, source_path)
+        return source_path
+    except Exception as exc:
+        logger.warning('H.264 re-encode exception for %s: %s', source_path, exc)
+        return source_path
 
 
 def _try_ocr_crop(pil_img):
@@ -151,6 +197,7 @@ def process_video_job(job, meters_per_pixel: float | None = None):
         # Finalize
         cap.release()
         writer.release()
+        _reencode_browser_compatible_mp4(out_path)
 
         # Build summary
         counts = {}
