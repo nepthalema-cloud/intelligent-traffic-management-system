@@ -188,6 +188,82 @@ class CameraHealthView(APIView):
                                 message="Camera health updated.")
 
 
+class CameraMonitoringSummaryView(APIView):
+    """GET /api/v1/cameras/monitoring-summary/ summary for the live-monitoring dashboard."""
+    permission_classes = [_CameraPermission]
+
+    def get(self, request: Request) -> Response:
+        from apps.traffic.models import TrafficMeasurement
+        from django.utils import timezone
+        from datetime import timedelta
+
+        now = timezone.now()
+        five_min_ago = now - timedelta(minutes=5)
+        cameras = list(
+            Camera.objects.select_related("health", "segment__road", "intersection")
+            .order_by("name")
+        )
+        active_cameras = [camera for camera in cameras if camera.is_active]
+
+        recent_ai = TrafficMeasurement.objects.filter(
+            data_source="ai",
+            measured_at__gte=five_min_ago,
+        ).order_by("-measured_at")
+
+        latest_by_camera = {}
+        for measurement in recent_ai:
+            if measurement.camera_id is None:
+                continue
+            latest_by_camera.setdefault(measurement.camera_id, measurement)
+
+        online_cameras = 0
+        offline_cameras = 0
+        active_ai_analyses = 0
+        current_detections = 0
+        camera_rows = []
+
+        for camera in cameras:
+            health = getattr(camera, "health", None)
+            connectivity = health.connectivity_status if health else "unknown"
+            health_status = health.health_status if health else "unknown"
+            is_online = connectivity == "connected" and health_status != "offline"
+            if camera.is_active:
+                if is_online:
+                    online_cameras += 1
+                else:
+                    offline_cameras += 1
+
+            latest = latest_by_camera.get(camera.pk)
+            ai_active = bool(latest and latest.measured_at >= five_min_ago)
+            if ai_active:
+                active_ai_analyses += 1
+                current_detections += int(latest.vehicle_count or 0)
+
+            camera_rows.append({
+                "id": camera.pk,
+                "name": camera.name,
+                "location": camera.intersection.name if camera.intersection else (camera.segment.road.name if camera.segment and camera.segment.road else "Unassigned"),
+                "health_status": health_status,
+                "connectivity_status": connectivity,
+                "is_online": is_online,
+                "ai_active": ai_active,
+                "hls_available": bool(camera.hls_path),
+                "last_seen": health.last_seen.isoformat() if health and health.last_seen else None,
+                "latest_vehicle_count": int(latest.vehicle_count or 0) if latest else 0,
+                "latest_measurement_at": latest.measured_at.isoformat() if latest else None,
+            })
+
+        return success_response(data={
+            "total_cameras": len(cameras),
+            "online_cameras": online_cameras,
+            "offline_cameras": offline_cameras,
+            "active_ai_analyses": active_ai_analyses,
+            "current_detected_vehicle_count": current_detections,
+            "cameras": camera_rows,
+            "generated_at": now.isoformat(),
+        })
+
+
 # ---------------------------------------------------------------------------
 # Sensor list / create
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ import { AuditLogPage }        from '@/pages/AuditLogPage'
 import { UserManagementPage }  from '@/pages/UserManagementPage'
 import { AnalyticsPage }       from '@/pages/AnalyticsPage'
 import { VideoAnalysisPage }   from '@/pages/VideoAnalysisPage'
+import { LiveMonitoringPage }  from '@/pages/LiveMonitoringPage'
 import { ProfilePage }         from '@/pages/ProfilePage'
 import { SettingsPage }        from '@/pages/SettingsPage'
 import { HomePage }            from '@/pages/HomePage'
@@ -138,6 +139,7 @@ export default function App() {
             {/* Cameras & Sensors */}
             <Route element={<ProtectedRoute roles={CAMERA_ROLES} />}>
               <Route path="/cameras" element={<CamerasPage />} />
+              <Route path="/live-monitoring" element={<LiveMonitoringPage />} />
             </Route>
 
             {/* Analytics */}

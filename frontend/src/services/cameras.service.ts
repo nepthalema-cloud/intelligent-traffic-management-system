@@ -19,6 +19,13 @@ export const cameraService = {
     return data.data
   },
 
+  async monitoringSummary() {
+    const { data } = await apiClient.get<{ success: boolean; data: import('@/types/api').CameraMonitoringSummary }>(
+      '/cameras/monitoring-summary/'
+    )
+    return data.data
+  },
+
   async create(payload: Partial<Camera> & { name: string }) {
     const { data } = await apiClient.post<{ success: boolean; data: Camera }>(
       '/cameras/', payload

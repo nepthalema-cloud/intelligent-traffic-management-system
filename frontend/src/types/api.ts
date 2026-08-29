@@ -387,6 +387,30 @@ export interface CameraStream {
   reason?: string
 }
 
+export interface CameraMonitoringCamera {
+  id: number
+  name: string
+  location: string | null
+  health_status: string
+  connectivity_status: string
+  is_online: boolean
+  ai_active: boolean
+  hls_available: boolean
+  last_seen: string | null
+  latest_vehicle_count: number
+  latest_measurement_at: string | null
+}
+
+export interface CameraMonitoringSummary {
+  total_cameras: number
+  online_cameras: number
+  offline_cameras: number
+  active_ai_analyses: number
+  current_detected_vehicle_count: number
+  generated_at: string
+  cameras: CameraMonitoringCamera[]
+}
+
 // ---------------------------------------------------------------------------
 // Camera connection status (Phase 5 — 7-state onboarding pipeline)
 // ---------------------------------------------------------------------------

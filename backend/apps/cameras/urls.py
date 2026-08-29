@@ -6,6 +6,7 @@ from apps.cameras.views import (
     CameraCalibrationView,
     CameraCredentialView,
     CameraDetailView, CameraHealthView, CameraListView,
+    CameraMonitoringSummaryView,
     CameraStatusView, CameraTestView,
     SensorDetailView, SensorHealthView, SensorListView, SensorStatusView,
     UploadVideoAnalysisView, AnalysisStatusView, AnalysisDownloadView,
@@ -16,6 +17,7 @@ app_name = "cameras"
 
 urlpatterns = [
     # Cameras — CRUD
+    path("monitoring-summary/",      CameraMonitoringSummaryView.as_view(), name="camera-monitoring-summary"),
     path("",                          CameraListView.as_view(),       name="camera-list"),
     path("<int:camera_id>/",          CameraDetailView.as_view(),     name="camera-detail"),
     path("<int:camera_id>/status/",   CameraStatusView.as_view(),     name="camera-status"),

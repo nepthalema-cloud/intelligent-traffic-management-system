@@ -11,6 +11,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/measurements': 'Traffic Measurements',
   '/signals': 'Traffic Signals',
   '/cameras': 'Cameras & Sensors',
+  '/live-monitoring': 'Live Monitoring',
   '/roads': 'Road Network',
   '/analytics': 'Analytics',
   '/video-analysis': 'Video Analysis',

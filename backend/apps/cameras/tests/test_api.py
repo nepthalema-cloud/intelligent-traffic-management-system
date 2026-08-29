@@ -72,6 +72,9 @@ class TestCameraUrlRouting(TestCase):
     def test_camera_health_resolves(self):
         self.assertEqual(resolve("/api/v1/cameras/1/health/").url_name, "camera-health")
 
+    def test_camera_monitoring_summary_resolves(self):
+        self.assertEqual(resolve("/api/v1/cameras/monitoring-summary/").url_name, "camera-monitoring-summary")
+
     def test_sensor_list_resolves(self):
         m = resolve(SENSORS_URL)
         self.assertEqual(m.url_name, "sensor-list")
@@ -194,6 +197,39 @@ class TestCameraRBAC(TestCase):
 # ---------------------------------------------------------------------------
 # 4. Camera CRUD
 # ---------------------------------------------------------------------------
+
+class TestCameraMonitoringSummary(TestCase):
+    def setUp(self):
+        _ensure_groups()
+        self.admin = _make_role_user("monitor_admin", "System Administrator")
+        self.cam1 = _camera(name="MON-1", is_active=True)
+        self.cam2 = _camera(name="MON-2", is_active=True)
+        self.cam3 = _camera(name="MON-3", is_active=False)
+        CameraHealth.objects.create(
+            camera=self.cam1,
+            health_status="healthy",
+            connectivity_status="connected",
+            last_seen="2026-08-30T00:00:00Z",
+        )
+        CameraHealth.objects.create(
+            camera=self.cam2,
+            health_status="offline",
+            connectivity_status="disconnected",
+            last_seen="2026-08-29T00:00:00Z",
+        )
+
+    def test_monitoring_summary_requires_auth(self):
+        self.assertEqual(APIClient().get("/api/v1/cameras/monitoring-summary/").status_code, 401)
+
+    def test_monitoring_summary_returns_counts(self):
+        resp = _jwt(self.admin).get("/api/v1/cameras/monitoring-summary/")
+        self.assertEqual(resp.status_code, 200)
+        payload = resp.json()["data"]
+        self.assertEqual(payload["total_cameras"], 3)
+        self.assertEqual(payload["online_cameras"], 1)
+        self.assertEqual(payload["offline_cameras"], 1)
+        self.assertIn("cameras", payload)
+
 
 class TestCameraCRUD(TestCase):
     def setUp(self):

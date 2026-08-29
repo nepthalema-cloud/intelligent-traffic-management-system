@@ -39,6 +39,8 @@ const NAV_ITEMS: NavItem[] = [
     roles: [ROLES.SYSTEM_ADMIN, ROLES.TRAFFIC_CONTROL_OFFICER, ROLES.TRAFFIC_ANALYST, ROLES.LAW_ENFORCEMENT, ROLES.PAYMENT_FINES_OFFICER] },
   { label: 'Cameras & Sensors', to: '/cameras',   icon: Icons.cameras, section: 'Infrastructure',
     roles: [ROLES.SYSTEM_ADMIN, ROLES.CAMERA_TECHNICIAN, ROLES.TRAFFIC_CONTROL_OFFICER] },
+  { label: 'Live Monitoring', to: '/live-monitoring', icon: Icons.cameras, section: 'Operations',
+    roles: [ROLES.SYSTEM_ADMIN, ROLES.CAMERA_TECHNICIAN, ROLES.TRAFFIC_CONTROL_OFFICER] },
   { label: 'Video Analysis', to: '/video-analysis', icon: Icons.analytics, section: 'Tools',
     roles: [ROLES.SYSTEM_ADMIN, ROLES.TRAFFIC_ANALYST, ROLES.TRAFFIC_CONTROL_OFFICER, ROLES.CAMERA_TECHNICIAN] },
   { label: 'Road Network',    to: '/roads',        icon: Icons.roads,
