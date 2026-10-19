@@ -22,8 +22,10 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.core import signing
+from django.core.exceptions import SuspiciousFileOperation
 from django.http import HttpResponse, FileResponse
 from django.urls import reverse
+from django.utils._os import safe_join
 
 from apps.common.pagination import StandardResultsPagination
 from apps.common.responses import created_response, error_response, success_response
@@ -606,8 +608,51 @@ class CameraCalibrationView(APIView):
 # Upload Video Analysis endpoints (temporary user uploads)
 # ---------------------------------------------------------------------------
 
+_UPLOAD_ANALYSIS_ROLES = [
+    "System Administrator",
+    "Traffic Analyst",
+    "Traffic Control Officer",
+    "Law Enforcement / Authorized Officer",
+    "Law Enforcement",
+]
+
+
+class _UploadVideoAnalysisPermission(IsAuthenticated):
+    """Permit video-analysis uploads only for System Administrator, Traffic Analyst,
+    Traffic Control Officer, and Law Enforcement.
+    """
+    def has_permission(self, request: Request, view) -> bool:
+        if not super().has_permission(request, view):
+            return False
+        if getattr(request.user, 'is_superuser', False):
+            return True
+        return request.user.groups.filter(name__in=_UPLOAD_ANALYSIS_ROLES).exists()
+
+
+def _is_system_administrator(user) -> bool:
+    """Check if user has explicit System Administrator privilege via group or superuser.
+    Do NOT grant oversight to generic is_staff users without explicit role/group policy.
+    """
+    if not user or not user.is_authenticated:
+        return False
+    return bool(
+        getattr(user, 'is_superuser', False) or
+        user.groups.filter(name='System Administrator').exists()
+    )
+
+
+def _get_accessible_job(user, job_id: int):
+    """Retrieve job for owner, or allow System Administrator oversight.
+    Denied cross-user access returns non-disclosing 404.
+    """
+    from apps.cameras.models import TemporaryVideoAnalysis
+    if _is_system_administrator(user):
+        return get_object_or_404(TemporaryVideoAnalysis, pk=job_id)
+    return get_object_or_404(TemporaryVideoAnalysis, pk=job_id, user=user)
+
+
 class UploadVideoAnalysisView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [_UploadVideoAnalysisPermission]
 
     def post(self, request: Request) -> Response:
         f = request.FILES.get('file')
@@ -621,17 +666,22 @@ class UploadVideoAnalysisView(APIView):
             status=TemporaryVideoAnalysis.STATUS_PENDING,
         )
 
-        # Background processing: run the real video processor in a thread
-        meters_pp = request.data.get('meters_per_pixel')
-        try:
-            meters_pp = float(meters_pp) if meters_pp is not None else None
-        except Exception:
-            meters_pp = None
+        # Background processing: check worker mode
+        worker_mode = getattr(settings, 'VIDEO_ANALYSIS_WORKER_MODE', 'inline')
+        if worker_mode == 'inline':
+            meters_pp = request.data.get('meters_per_pixel')
+            try:
+                meters_pp = float(meters_pp) if meters_pp is not None else None
+            except Exception:
+                meters_pp = None
 
-        from apps.cameras.video_processor import process_video_job
-        import threading
-        t = threading.Thread(target=lambda: process_video_job(job, meters_pp), daemon=True)
-        t.start()
+            from apps.cameras.video_processor import process_video_job
+            import threading
+            t = threading.Thread(target=lambda: process_video_job(job, meters_pp), daemon=True)
+            t.start()
+        else:
+            import logging
+            logging.getLogger(__name__).info("Job %s queued for dedicated background video worker.", job.pk)
 
         return created_response(data={'job_id': str(job.pk)}, message='Upload accepted. Processing started.')
 
@@ -640,8 +690,7 @@ class AnalysisStatusView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request: Request, job_id: int) -> Response:
-        from apps.cameras.models import TemporaryVideoAnalysis
-        job = get_object_or_404(TemporaryVideoAnalysis, pk=job_id, user=request.user)
+        job = _get_accessible_job(request.user, job_id)
         data = {'job_id': job.pk, 'status': job.status, 'result': job.result_json}
         return success_response(data=data)
 
@@ -660,7 +709,7 @@ class AnalysisDownloadView(APIView):
 
     def get(self, request: Request, job_id: int) -> Response:
         from apps.cameras.models import TemporaryVideoAnalysis
-        job = get_object_or_404(TemporaryVideoAnalysis, pk=job_id, user=request.user)
+        job = _get_accessible_job(request.user, job_id)
         if job.status != TemporaryVideoAnalysis.STATUS_DONE:
             return error_response('Job not completed yet.', status_code=status.HTTP_400_BAD_REQUEST)
 
@@ -673,11 +722,14 @@ class AnalysisDownloadView(APIView):
         try:
             results_file = result.get('results_file')
             if results_file:
-                results_file = results_file.replace('\\', '/')
-                full_path = os.path.join(settings.MEDIA_ROOT, results_file)
-                if os.path.exists(full_path):
-                    with open(full_path, 'r', encoding='utf8') as fh:
-                        full_results = json.load(fh)
+                results_file = results_file.replace('\\', '/').lstrip('/')
+                try:
+                    full_path = safe_join(settings.MEDIA_ROOT, results_file)
+                    if os.path.exists(full_path):
+                        with open(full_path, 'r', encoding='utf8') as fh:
+                            full_results = json.load(fh)
+                except (SuspiciousFileOperation, ValueError):
+                    full_results = None
         except Exception:
             full_results = None
 
@@ -704,7 +756,7 @@ class AnalysisStreamTokenView(APIView):
 
     def get(self, request: Request, job_id: int) -> Response:
         from apps.cameras.models import TemporaryVideoAnalysis
-        job = get_object_or_404(TemporaryVideoAnalysis, pk=job_id, user=request.user)
+        job = _get_accessible_job(request.user, job_id)
         if job.status != TemporaryVideoAnalysis.STATUS_DONE:
             return error_response('Job not completed yet.', status_code=status.HTTP_400_BAD_REQUEST)
 
@@ -747,13 +799,40 @@ class AnalysisStreamView(APIView):
             return HttpResponse(status=403)
         except signing.SignatureExpired:
             return HttpResponse(status=403)
+        except Exception:
+            return HttpResponse(status=403)
 
         from apps.cameras.models import TemporaryVideoAnalysis
         job = get_object_or_404(TemporaryVideoAnalysis, pk=job_id)
+
+        token_user_id = data.get('user_id')
+        if job.user_id:
+            if not token_user_id:
+                return HttpResponse(status=403)
+            if int(token_user_id) != job.user_id:
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                token_user = User.objects.filter(pk=int(token_user_id)).first()
+                if not token_user or not _is_system_administrator(token_user):
+                    return HttpResponse(status=403)
+
         if not job.annotated_video:
             return HttpResponse(status=404)
 
-        path = job.annotated_video.path
+        # Resolve annotated video path safely within MEDIA_ROOT, supporting legacy Windows separators
+        path = None
+        raw_name = getattr(job.annotated_video, 'name', '') or ''
+        if not raw_name:
+            return HttpResponse(status=404)
+
+        normalized_name = raw_name.replace('\\', '/').lstrip('/')
+        try:
+            candidate = safe_join(settings.MEDIA_ROOT, normalized_name)
+            if os.path.exists(candidate) and os.path.isfile(candidate):
+                path = candidate
+        except (SuspiciousFileOperation, ValueError):
+            return HttpResponse(status=403)
+
         if not path or not os.path.exists(path):
             return HttpResponse(status=404)
 
@@ -782,7 +861,7 @@ class AnalysisDiscardView(APIView):
 
     def delete(self, request: Request, job_id: int) -> Response:
         from apps.cameras.models import TemporaryVideoAnalysis
-        job = get_object_or_404(TemporaryVideoAnalysis, pk=job_id, user=request.user)
+        job = _get_accessible_job(request.user, job_id)
 
         # remove uploaded file
         try:
@@ -793,8 +872,13 @@ class AnalysisDiscardView(APIView):
 
         # remove annotated video
         try:
-            if job.annotated_video and hasattr(job.annotated_video, 'path') and job.annotated_video.path and os.path.exists(job.annotated_video.path):
-                os.remove(job.annotated_video.path)
+            if job.annotated_video:
+                raw_name = getattr(job.annotated_video, 'name', '') or ''
+                if raw_name:
+                    norm_name = raw_name.replace('\\', '/').lstrip('/')
+                    target = safe_join(settings.MEDIA_ROOT, norm_name)
+                    if os.path.exists(target) and os.path.isfile(target):
+                        os.remove(target)
         except Exception:
             pass
 
@@ -805,8 +889,8 @@ class AnalysisDiscardView(APIView):
                 p = result.get(key)
                 if p:
                     p = p.replace('\\', '/').lstrip('/')
-                    full = os.path.join(settings.MEDIA_ROOT, p)
-                    if os.path.exists(full):
+                    full = safe_join(settings.MEDIA_ROOT, p)
+                    if os.path.exists(full) and os.path.isfile(full):
                         os.remove(full)
         except Exception:
             pass

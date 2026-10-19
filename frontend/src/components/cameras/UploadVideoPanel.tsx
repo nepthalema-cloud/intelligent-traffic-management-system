@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useLocation } from 'react-router-dom'
 import { LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts'
 import { uploadVideo, checkJobStatus, downloadResults, createAuthenticatedMediaUrl, getAnnotatedStreamUrl, discardAnalysis, rememberVideoAnalysisJob } from '@/services/uploadVideo.service'
 
@@ -83,41 +84,81 @@ function Timeline({ duration, events, onSeek }: { duration: number | null, event
 
 function DashboardCards({ uniqueVehicles, totalDetections, vehicleTypeCounts, averageSpeed, highestSpeed, recognizedPlates, violationCount }: { uniqueVehicles:number, totalDetections:number, vehicleTypeCounts: Record<string, number>, averageSpeed:number, highestSpeed:number, recognizedPlates:number, violationCount:number }) {
   return (
-    <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
-      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Unique Vehicles</div>
-        <div className="mt-2 text-3xl font-semibold text-slate-900">{uniqueVehicles}</div>
-      </div>
-      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Total Detections</div>
-        <div className="mt-2 text-3xl font-semibold text-slate-900">{totalDetections}</div>
-      </div>
-      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Average Speed</div>
-        <div className="mt-2 text-3xl font-semibold text-slate-900">{averageSpeed ? `${averageSpeed.toFixed(0)} km/h` : 'N/A'}</div>
-      </div>
-      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Highest Speed</div>
-        <div className="mt-2 text-3xl font-semibold text-slate-900">{highestSpeed ? `${highestSpeed.toFixed(0)} km/h` : 'N/A'}</div>
-      </div>
-      <div className="xl:col-span-2 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Vehicle type breakdown</div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-2">
-          {Object.entries(vehicleTypeCounts).map(([type, count]) => (
-            <div key={type} className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
-              <div className="font-semibold text-slate-900">{type}</div>
-              <div>{count} vehicles</div>
-            </div>
-          ))}
+    <div className="space-y-3">
+      <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Unique Vehicles</div>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600 font-medium" title="Multi-frame track association required for unique vehicle counting">
+              Tracking
+            </span>
+          </div>
+          <div className="mt-2 text-3xl font-semibold text-slate-900">{uniqueVehicles}</div>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Validated multi-frame tracking associations.
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex items-center justify-between">
+            <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Cumulative Frame Detections</div>
+            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] text-blue-700 font-medium" title="Raw per-frame detections">
+              Raw
+            </span>
+          </div>
+          <div className="mt-2 text-3xl font-semibold text-slate-900">{totalDetections}</div>
+          <p className="mt-1 text-[11px] text-slate-500">
+            Raw detections across frames (may count same vehicle multiple times).
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Average Speed</div>
+          <div className="mt-2 text-3xl font-semibold text-slate-900">{averageSpeed ? `${averageSpeed.toFixed(0)} km/h` : 'Unavailable'}</div>
+          <p className="mt-1 text-[11px] text-slate-500">
+            {averageSpeed ? 'Calibrated measurement' : 'Uncalibrated footage'}
+          </p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Highest Speed</div>
+          <div className="mt-2 text-3xl font-semibold text-slate-900">{highestSpeed ? `${highestSpeed.toFixed(0)} km/h` : 'Unavailable'}</div>
+          <p className="mt-1 text-[11px] text-slate-500">
+            {highestSpeed ? 'Calibrated peak' : 'Uncalibrated footage'}
+          </p>
+        </div>
+
+        <div className="xl:col-span-2 rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Vehicle type breakdown</div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {Object.entries(vehicleTypeCounts).map(([type, count]) => (
+              <div key={type} className="rounded-2xl bg-slate-50 p-3 text-sm text-slate-600">
+                <div className="font-semibold text-slate-900 capitalize">{type}</div>
+                <div>{count} detections</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Recognized Plates</div>
+          <div className="mt-2 text-3xl font-semibold text-slate-900">{recognizedPlates}</div>
+          <p className="mt-1 text-[11px] text-slate-500">ANPR / OCR confirmed plates</p>
+        </div>
+
+        <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Violations</div>
+          <div className="mt-2 text-3xl font-semibold text-slate-900">{violationCount}</div>
+          <p className="mt-1 text-[11px] text-slate-500">Rule-based traffic infractions</p>
         </div>
       </div>
-      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Recognized Plates</div>
-        <div className="mt-2 text-3xl font-semibold text-slate-900">{recognizedPlates}</div>
-      </div>
-      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Violations</div>
-        <div className="mt-2 text-3xl font-semibold text-slate-900">{violationCount}</div>
+
+      <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-900 flex items-start gap-2.5">
+        <span className="text-base leading-none">ℹ️</span>
+        <div>
+          <span className="font-semibold">Speed & Calibration Note: </span>
+          Accurate physical speed estimation requires camera calibration, including the appropriate ground-plane scale (<code className="font-mono text-[11px] bg-amber-100 px-1 py-0.5 rounded">meters_per_pixel</code>). Speed is unavailable for uncalibrated footage.
+        </div>
       </div>
     </div>
   )
@@ -248,6 +289,20 @@ export function UploadVideoPanel() {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
+  const location = useLocation()
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search)
+    const qJob = params.get('jobId') || params.get('job')
+    if (qJob && qJob !== jobId) {
+      setJobId(qJob)
+      setDownloadData(null)
+      setResult(null)
+      setStatus(null)
+      setProgressPct(0)
+    }
+  }, [location.search, jobId])
+
   const [status, setStatus] = useState<string | null>(null)
   const [result, setResult] = useState<any | null>(null)
   const [downloadData, setDownloadData] = useState<any | null>(null)
@@ -300,8 +355,93 @@ export function UploadVideoPanel() {
   ])
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
+  const [hasEnded, setHasEnded] = useState(false)
+  const [isBuffering, setIsBuffering] = useState(false)
   const [playbackRate] = useState(1)
   const [volume] = useState(0.8)
+
+  useEffect(() => {
+    setHasEnded(false)
+    setIsPlaying(false)
+    setCurrentTime(0)
+    setDuration(null)
+  }, [jobId])
+
+  const handleTogglePlay = async () => {
+    const v = videoRef.current
+    if (!v) return
+    if (v.paused || v.ended || hasEnded) {
+      if (hasEnded || v.currentTime >= (v.duration || 0)) {
+        v.currentTime = 0
+        setHasEnded(false)
+      }
+      try {
+        await v.play()
+        setIsPlaying(true)
+      } catch {
+        if (jobId) {
+          try {
+            const renewed = await getAnnotatedStreamUrl(jobId)
+            if (renewed) {
+              v.src = renewed
+              await v.play()
+              setIsPlaying(true)
+            }
+          } catch {}
+        }
+      }
+    } else {
+      v.pause()
+      setIsPlaying(false)
+    }
+  }
+
+  const handleSeek = (targetSeconds: number) => {
+    const v = videoRef.current
+    if (!v) return
+    const maxT = v.duration && Number.isFinite(v.duration) ? v.duration : (duration || targetSeconds)
+    const safeTime = Math.max(0, Math.min(maxT, targetSeconds))
+    v.currentTime = safeTime
+    setCurrentTime(safeTime)
+    if (hasEnded && safeTime < maxT) {
+      setHasEnded(false)
+    }
+    renderOverlay()
+  }
+
+  const handleRewind10 = () => {
+    const cur = videoRef.current?.currentTime ?? currentTime
+    handleSeek(cur - 10)
+  }
+
+  const handleForward10 = () => {
+    const cur = videoRef.current?.currentTime ?? currentTime
+    handleSeek(cur + 10)
+  }
+
+  const handleReplay = async () => {
+    const v = videoRef.current
+    if (!v) return
+    setHasEnded(false)
+    v.currentTime = 0
+    setCurrentTime(0)
+    try {
+      await v.play()
+      setIsPlaying(true)
+    } catch {
+      if (jobId) {
+        try {
+          const renewed = await getAnnotatedStreamUrl(jobId)
+          if (renewed) {
+            v.src = renewed
+            v.currentTime = 0
+            await v.play()
+            setIsPlaying(true)
+          }
+        } catch {}
+      }
+    }
+  }
   const [frameWidth, frameHeight] = (() => {
     const [w, h] = ((results?.resolution ?? '').split('x').map(Number))
     return [Number.isFinite(w) ? w : 1280, Number.isFinite(h) ? h : 720]
@@ -512,7 +652,7 @@ export function UploadVideoPanel() {
     return () => {
       active = false
     }
-  }, [downloadData?.annotated_video])
+  }, [downloadData?.annotated_video, jobId])
 
   // Resolve authenticated blob URLs for thumbnails/snapshots.
   // Depend on `downloadData` instead of the derived `vehicles`/`snapshots`
@@ -806,7 +946,19 @@ export function UploadVideoPanel() {
           <div className="space-y-2 rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
             <div>Job status</div>
             <div className="text-slate-900 font-semibold">{status ?? 'idle'}</div>
-            <div className="text-xs">Job: {jobId ?? 'n/a'}</div>
+            <div className="flex items-center gap-2 text-xs">
+              <span>Job: {jobId ?? 'n/a'}</span>
+              {!jobId && (
+                <button
+                  type="button"
+                  onClick={() => setJobId('87')}
+                  className="rounded-lg bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-600 transition hover:bg-blue-100"
+                  title="Load completed presentation Job 87"
+                >
+                  Load Job 87
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -853,17 +1005,54 @@ export function UploadVideoPanel() {
       {downloadData && (
         <div className="grid gap-4 xl:grid-cols-[1.6fr_0.95fr]">
           <div className="space-y-4">
-            <div className="rounded-3xl border border-slate-200 bg-slate-900 p-4 shadow-sm">
-              <div className="relative overflow-hidden rounded-[28px] border border-slate-700 bg-black shadow-inner">
+            <div className="rounded-3xl border border-slate-700 bg-slate-900 p-4 shadow-xl">
+              {/* Header distinction badge */}
+              <div className="flex flex-wrap items-center justify-between pb-3 px-1 gap-2 border-b border-slate-800 mb-3">
+                <div className="flex items-center gap-2">
+                  <span className="flex h-2.5 w-2.5 relative">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-500"></span>
+                  </span>
+                  <span className="text-xs font-semibold uppercase tracking-wider text-blue-400">Recorded Analysis Footage</span>
+                  <span className="text-xs text-slate-400">· Pre-recorded Evaluation (Job #{jobId}) · Not live CCTV</span>
+                </div>
+                {hasEnded ? (
+                  <span className="rounded-full bg-emerald-950 border border-emerald-600/60 px-2.5 py-0.5 text-xs text-emerald-300 font-medium">
+                    Playback Completed
+                  </span>
+                ) : isBuffering ? (
+                  <span className="rounded-full bg-amber-950 border border-amber-600/60 px-2.5 py-0.5 text-xs text-amber-300 font-medium">
+                    Buffering stream…
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-slate-800 border border-slate-700 px-2.5 py-0.5 text-xs text-slate-300">
+                    H.264 Range Stream
+                  </span>
+                )}
+              </div>
+
+              {/* Video container */}
+              <div className="relative overflow-hidden rounded-[24px] border border-slate-800 bg-black shadow-inner">
                 {downloadData.annotated_video ? (
                   <>
                     <video
                       ref={videoRef}
-                      controls
                       autoPlay
                       muted
+                      playsInline
                       src={videoUrl ?? undefined}
-                      className="relative z-0 w-full h-[560px] bg-black object-cover"
+                      className="relative z-0 w-full h-[520px] bg-black object-contain"
+                      onPlay={() => {
+                        setIsPlaying(true)
+                        setHasEnded(false)
+                      }}
+                      onPause={() => setIsPlaying(false)}
+                      onEnded={() => {
+                        setIsPlaying(false)
+                        setHasEnded(true)
+                      }}
+                      onWaiting={() => setIsBuffering(true)}
+                      onPlaying={() => setIsBuffering(false)}
                       onLoadedMetadata={() => {
                         const v = videoRef.current
                         if (v) {
@@ -877,6 +1066,9 @@ export function UploadVideoPanel() {
                         if (v) {
                           const newTime = v.currentTime
                           setCurrentTime(newTime)
+                          if (v.duration && newTime >= v.duration - 0.2) {
+                            setHasEnded(true)
+                          }
                           renderOverlay()
                         }
                       }}
@@ -888,15 +1080,142 @@ export function UploadVideoPanel() {
                       style={{ position: 'absolute', inset: 0, pointerEvents: 'none', zIndex: 10 }}
                       className="pointer-events-none"
                     />
+
+                    {/* End-of-video Replay Overlay */}
+                    {hasEnded && (
+                      <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/70 backdrop-blur-xs transition-all">
+                        <div className="rounded-2xl bg-slate-900/90 border border-slate-700 p-6 text-center shadow-2xl flex flex-col items-center gap-3">
+                          <div className="text-white text-base font-semibold">Video Playback Finished</div>
+                          <p className="text-xs text-slate-400 max-w-xs">Analysis footage reached the end. Click replay to return to the beginning.</p>
+                          <button
+                            type="button"
+                            id="btn-overlay-replay"
+                            onClick={handleReplay}
+                            className="flex items-center gap-2 rounded-xl bg-blue-600 hover:bg-blue-500 px-6 py-2.5 text-sm font-semibold text-white shadow-lg transition transform hover:scale-105 active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                            aria-label="Replay video from beginning"
+                          >
+                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                            Replay Video
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </>
                 ) : (
-                  <div className="relative rounded-[28px] bg-slate-950 p-4">
-                    <canvas ref={canvasRef} className="w-full h-80 rounded-[28px] bg-slate-900" />
+                  <div className="relative rounded-[24px] bg-slate-950 p-4">
+                    <canvas ref={canvasRef} className="w-full h-80 rounded-[20px] bg-slate-900" />
                     <div className="pointer-events-none absolute inset-x-0 bottom-4 mx-auto w-full text-center text-xs text-slate-300">Video preview not available yet; using first available annotated frame for inspection.</div>
                   </div>
                 )}
               </div>
 
+              {/* Dedicated Custom Playback Control Bar */}
+              <div className="mt-3 rounded-2xl border border-slate-800 bg-slate-950/90 p-3 space-y-2">
+                {/* Seek Timeline Range Slider */}
+                <div className="flex items-center gap-3">
+                  <span className="text-[11px] font-mono text-slate-400 min-w-[42px]">
+                    {formatDuration(currentTime)}
+                  </span>
+                  <input
+                    type="range"
+                    id="playback-seek-slider"
+                    min={0}
+                    max={duration && Number.isFinite(duration) ? duration : 100}
+                    step={0.1}
+                    value={currentTime}
+                    onChange={(e) => handleSeek(parseFloat(e.target.value))}
+                    className="flex-1 h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-blue-500 hover:accent-blue-400 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                    aria-label="Seek video playback timeline"
+                  />
+                  <span className="text-[11px] font-mono text-slate-400 min-w-[42px] text-right">
+                    {formatDuration(duration || 0)}
+                  </span>
+                </div>
+
+                {/* Control Action Buttons */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-900">
+                  <div className="flex items-center gap-2">
+                    {/* Play / Pause */}
+                    <button
+                      type="button"
+                      id="btn-play-pause"
+                      onClick={handleTogglePlay}
+                      className="flex items-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 px-4 py-2 text-xs font-semibold text-white shadow-sm transition active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      aria-label={isPlaying ? 'Pause video' : 'Play video'}
+                    >
+                      {isPlaying ? (
+                        <>
+                          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                          Pause
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                          Play
+                        </>
+                      )}
+                    </button>
+
+                    {/* Rewind 10 seconds */}
+                    <button
+                      type="button"
+                      id="btn-rewind-10"
+                      onClick={handleRewind10}
+                      className="flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 transition active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      title="Rewind 10 seconds"
+                      aria-label="Rewind 10 seconds"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0019 16V8a1 1 0 00-1.6-.8l-5.334 4zM4.066 11.2a1 1 0 000 1.6l5.334 4A1 1 0 0011 16V8a1 1 0 00-1.6-.8l-5.334 4z" /></svg>
+                      -10s
+                    </button>
+
+                    {/* Forward 10 seconds */}
+                    <button
+                      type="button"
+                      id="btn-forward-10"
+                      onClick={handleForward10}
+                      className="flex items-center gap-1 rounded-xl border border-slate-700 bg-slate-900 hover:bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 transition active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      title="Forward 10 seconds"
+                      aria-label="Forward 10 seconds"
+                    >
+                      +10s
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.933 12.8a1 1 0 000-1.6L6.6 7.2A1 1 0 005 8v8a1 1 0 001.6.8l5.333-4zM19.933 12.8a1 1 0 000-1.6l-5.333-4A1 1 0 0013 8v8a1 1 0 001.6.8l5.333-4z" /></svg>
+                    </button>
+
+                    {/* Replay Button */}
+                    <button
+                      type="button"
+                      id="btn-replay"
+                      onClick={handleReplay}
+                      className={`flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition active:scale-95 focus:outline-none focus:ring-2 focus:ring-blue-400 ${
+                        hasEnded
+                          ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm ring-1 ring-emerald-400'
+                          : 'border border-slate-700 bg-slate-900 hover:bg-slate-800 text-slate-200'
+                      }`}
+                      title="Return to beginning and play again"
+                      aria-label="Replay video from start"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                      Replay
+                    </button>
+                  </div>
+
+                  {/* Right side controls */}
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { if (videoRef.current) videoRef.current.requestFullscreen?.() }}
+                      className="rounded-xl border border-slate-800 bg-slate-900 hover:bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-300 transition"
+                      title="Fullscreen"
+                      aria-label="View video in fullscreen"
+                    >
+                      Fullscreen
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status and Diagnostics summary */}
               <div className="grid gap-4 lg:grid-cols-[1fr_auto] mt-4">
                 <div className="rounded-3xl border border-slate-700 bg-slate-950/80 p-4 text-slate-200">
                   <div className="flex flex-wrap items-center justify-between gap-4">
@@ -919,7 +1238,7 @@ export function UploadVideoPanel() {
                     </div>
                     <div className="rounded-2xl bg-slate-900 p-3 text-sm">
                       <div className="text-xs uppercase tracking-[0.18em] text-slate-500">Playback mode</div>
-                      <div className="mt-2 text-white">{isPlaying ? 'Playing' : 'Ready for review'}</div>
+                      <div className="mt-2 text-white">{hasEnded ? 'Playback finished (Replay ready)' : isPlaying ? 'Playing' : 'Paused / Ready for review'}</div>
                     </div>
                   </div>
                 </div>

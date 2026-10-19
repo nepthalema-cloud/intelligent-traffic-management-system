@@ -81,6 +81,14 @@ const ANALYTICS_ROLES = [
   ROLES.PAYMENT_FINES_OFFICER,
 ]
 
+// Video Analysis: Admin, TCO, Analyst, Law Enforcement (restricted from Camera Technician and Payment/Fines Officer)
+const VIDEO_ANALYSIS_ROLES = [
+  ROLES.SYSTEM_ADMIN,
+  ROLES.TRAFFIC_CONTROL_OFFICER,
+  ROLES.TRAFFIC_ANALYST,
+  ROLES.LAW_ENFORCEMENT,
+]
+
 // Admin: System Admin only
 const ADMIN_ROLES = [ROLES.SYSTEM_ADMIN]
 
@@ -145,6 +153,10 @@ export default function App() {
             {/* Analytics */}
             <Route element={<ProtectedRoute roles={ANALYTICS_ROLES} />}>
               <Route path="/analytics" element={<AnalyticsPage />} />
+            </Route>
+
+            {/* Video Analysis */}
+            <Route element={<ProtectedRoute roles={VIDEO_ANALYSIS_ROLES} />}>
               <Route path="/video-analysis" element={<VideoAnalysisPage />} />
             </Route>
 

@@ -219,13 +219,41 @@ def process_video_job(job, meters_per_pixel: float | None = None):
             'generated_at': datetime.utcnow().isoformat() + 'Z',
         }
 
-        # CSV
+        # CSV export containing genuine detection and tracking records
         csv_path = os.path.join(out_dir, f'results_{job.pk}.csv')
         with open(csv_path, 'w', newline='', encoding='utf8') as fh:
             writer_csv = csv.writer(fh)
-            writer_csv.writerow(['time_s', 'event_type', 'track_id', 'plate'])
-            for ev in per_frame_events:
-                writer_csv.writerow([ev.get('time'), ev.get('type'), ev.get('track_id'), ev.get('plate')])
+            writer_csv.writerow([
+                'timestamp_s', 'frame_index', 'track_id', 'class', 'confidence',
+                'bbox_norm_x1', 'bbox_norm_y1', 'bbox_norm_x2', 'bbox_norm_y2',
+                'plate_candidate', 'registry_matched', 'vehicle_make', 'vehicle_model',
+                'driver_name', 'speed_kmh'
+            ])
+            for f_idx, f in enumerate(frames_output):
+                t_s = f.get('time', 0.0)
+                for d in f.get('detections', []):
+                    bbox = d.get('bbox', [0, 0, 0, 0])
+                    v_match = d.get('vehicle') or {}
+                    d_match = d.get('driver') or {}
+                    conf_str = f"{d.get('confidence'):.3f}" if d.get('confidence') is not None else ""
+                    speed_str = f"{d.get('speed_kmh'):.1f}" if d.get('speed_kmh') is not None else ""
+                    writer_csv.writerow([
+                        f"{t_s:.2f}",
+                        f_idx,
+                        d.get('track_id', ''),
+                        d.get('class', ''),
+                        conf_str,
+                        f"{bbox[0]:.4f}" if len(bbox) > 0 else "",
+                        f"{bbox[1]:.4f}" if len(bbox) > 1 else "",
+                        f"{bbox[2]:.4f}" if len(bbox) > 2 else "",
+                        f"{bbox[3]:.4f}" if len(bbox) > 3 else "",
+                        d.get('plate') or "",
+                        "YES" if bool(v_match) else "NO",
+                        v_match.get('make', ''),
+                        v_match.get('model', ''),
+                        d_match.get('full_name', ''),
+                        speed_str
+                    ])
 
         # Build track summaries
         for track in tracks.values():
@@ -253,6 +281,19 @@ def process_video_job(job, meters_per_pixel: float | None = None):
                 'time': v['time'],
                 'speed_kmh': v['speed_kmh'],
             })
+
+        # Collect distinct plates information for reporting
+        plates_info_map = {}
+        for f in frames_output:
+            for d in f.get('detections', []):
+                p = d.get('plate')
+                if p and p not in plates_info_map:
+                    plates_info_map[p] = {
+                        'plate': p,
+                        'matched': bool(d.get('vehicle')),
+                        'vehicle': d.get('vehicle'),
+                        'driver': d.get('driver'),
+                    }
 
         # Full JSON results file (frames + summary)
         results_obj = {
@@ -285,33 +326,132 @@ def process_video_job(job, meters_per_pixel: float | None = None):
         with open(json_path, 'w', encoding='utf8') as fh:
             json.dump(results_obj, fh, ensure_ascii=False, indent=2)
 
-        # Optionally generate a PDF report (if reportlab is installed)
+        # Generate professional PDF report
         pdf_path = None
         try:
             from reportlab.lib.pagesizes import letter
             from reportlab.pdfgen import canvas
+            from reportlab.lib import colors
+
             pdf_path = os.path.join(out_dir, f'report_{job.pk}.pdf')
             c = canvas.Canvas(pdf_path, pagesize=letter)
-            c.setFont('Helvetica-Bold', 14)
-            c.drawString(36, 750, 'Video Analysis Report')
-            c.setFont('Helvetica', 10)
-            c.drawString(36, 730, f"File: {job.original_filename}")
-            c.drawString(36, 716, f"Processed frames: {processed}")
-            c.drawString(36, 702, f"FPS: {fps}")
-            c.drawString(36, 688, f"Resolution: {w}x{h}")
-            y = 660
-            c.setFont('Helvetica-Bold', 12)
-            c.drawString(36, y, 'Vehicle counts:')
-            y -= 16
-            c.setFont('Helvetica', 10)
-            for cls, cnt in counts.items():
-                c.drawString(48, y, f"{cls}: {cnt}")
-                y -= 12
-                if y < 72:
-                    c.showPage()
-                    y = 750
+            page_w, page_h = letter
+
+            # Primary header banner (Deep Slate)
+            c.setFillColor(colors.HexColor("#0f172a"))
+            c.rect(0, page_h - 70, page_w, 70, fill=True, stroke=False)
+
+            c.setFillColor(colors.white)
+            c.setFont("Helvetica-Bold", 16)
+            c.drawString(40, page_h - 38, "TrafficOps — AI Video Analysis Report")
+            c.setFont("Helvetica", 9)
+            c.drawString(40, page_h - 54, "Intelligent Traffic Management System · Evidence & Analytics Dossier")
+
+            # Section 1: Execution Metadata
+            y = page_h - 100
+            c.setFillColor(colors.HexColor("#1e293b"))
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(40, y, "1. Analysis & Execution Metadata")
+
+            y -= 18
+            c.setFont("Helvetica", 9)
+            c.setFillColor(colors.HexColor("#334155"))
+            meta_items = [
+                f"Job ID: #{job.pk}",
+                f"Original Filename: {job.original_filename}",
+                f"Processing Status: Complete (done)",
+                f"Video Geometry: {w}x{h} @ {fps:.1f} FPS",
+                f"Frames Analyzed: {processed}",
+                f"Speed Calibration Status: {'Calibrated to camera geometry' if meters_per_pixel else 'Uncalibrated / Unavailable (Physical speeds suppressed)'}",
+            ]
+            for m_line in meta_items:
+                c.drawString(55, y, m_line)
+                y -= 14
+
+            # Section 2: Counts and Classification
+            y -= 10
+            c.setFillColor(colors.HexColor("#1e293b"))
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(40, y, "2. Vehicle Counts & Classification Summary")
+
+            y -= 18
+            c.setFont("Helvetica-Bold", 9)
+            c.setFillColor(colors.HexColor("#0f172a"))
+            c.drawString(55, y, f"Unique Tracked Vehicles (multi-frame associations): {len(tracks)}")
+            y -= 14
+            c.drawString(55, y, f"Cumulative Frame Detections (raw per-frame detections): {sum(counts.values())}")
+
+            y -= 18
+            c.setFont("Helvetica", 9)
+            c.setFillColor(colors.HexColor("#334155"))
+            c.drawString(55, y, "Breakdown by detected class:")
+            y -= 14
+            for cls_name, cnt in sorted(counts.items()):
+                c.drawString(70, y, f"• {cls_name.capitalize()}: {cnt} frame detections")
+                y -= 13
+
+            # Section 3: ANPR / Plate Resolution
+            y -= 10
+            c.setFillColor(colors.HexColor("#1e293b"))
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(40, y, "3. License Plate Recognition & Registry Resolution")
+
+            y -= 18
+            if not plates_info_map:
+                c.setFont("Helvetica-Oblique", 9)
+                c.setFillColor(colors.HexColor("#64748b"))
+                c.drawString(55, y, "No license plate candidates extracted from evaluated video frames.")
+                y -= 14
+            else:
+                c.setFont("Helvetica", 9)
+                for p_entry in list(plates_info_map.values())[:6]:
+                    p_val = p_entry.get('plate', '')
+                    m_stat = "[CONFIRMED REGISTRY MATCH]" if p_entry.get('matched') else "[UNREGISTERED / CANDIDATE ONLY]"
+                    c.setFillColor(colors.HexColor("#0f172a"))
+                    c.drawString(55, y, f"Candidate Plate: {p_val} — {m_stat}")
+                    y -= 13
+                    c.setFillColor(colors.HexColor("#475569"))
+                    if p_entry.get('matched') and p_entry.get('vehicle'):
+                        vh = p_entry['vehicle']
+                        c.drawString(70, y, f"Vehicle: {vh.get('year', '')} {vh.get('make', '')} {vh.get('model', '')} ({vh.get('color', '')})".strip())
+                        y -= 13
+                    if p_entry.get('matched') and p_entry.get('driver'):
+                        dr = p_entry['driver']
+                        c.drawString(70, y, f"Driver: {dr.get('full_name', '')} (License: {dr.get('license_number', '')})")
+                        y -= 13
+                    if not p_entry.get('matched'):
+                        c.drawString(70, y, "No registered vehicle matched this plate in the traffic registry.")
+                        y -= 13
+
+            # Section 4: Speed & Compliance Notes
+            y -= 10
+            c.setFillColor(colors.HexColor("#1e293b"))
+            c.setFont("Helvetica-Bold", 11)
+            c.drawString(40, y, "4. Speed & Traffic Rule Compliance")
+            y -= 18
+            c.setFont("Helvetica", 9)
+            c.setFillColor(colors.HexColor("#334155"))
+            if not meters_per_pixel:
+                c.drawString(55, y, "Speed Measurements: Unavailable. Accurate physical speed requires camera ground-plane calibration.")
+                y -= 14
+                c.drawString(55, y, "Speed Violations: None asserted (footage is uncalibrated).")
+                y -= 14
+            else:
+                c.drawString(55, y, "Speed Measurements: Calibrated to scene geometry.")
+                y -= 14
+
+            # Footer
+            c.setStrokeColor(colors.HexColor("#cbd5e1"))
+            c.line(40, 45, page_w - 40, 45)
+            c.setFont("Helvetica", 8)
+            c.setFillColor(colors.HexColor("#94a3b8"))
+            c.drawString(40, 32, "TrafficOps Stage E Evidence Dossier · YOLOv8 Object Detection · DeepSORT Tracking")
+            c.drawRightString(page_w - 40, 32, "University Internship Presentation Build")
+
             c.save()
-        except Exception:
+            logger.info("Generated PDF report at %s", pdf_path)
+        except Exception as pdf_err:
+            logger.warning("PDF report generation encountered an error: %s", pdf_err)
             pdf_path = None
 
         # Update stage to rendering_overlays

@@ -27,6 +27,106 @@ def _try_ocr_crop(pil_img):
         return None
 
 
+def _resolve_plate_registry(plate_text: str) -> Dict[str, Any]:
+    """
+    Resolve a detected plate to the Vehicle/Driver registry.
+    Uses PlateResolutionService when Django is available.
+    Falls back to direct parameterized SQLite query against /shared_db/db.sqlite3
+    so the AI worker container can resolve plates without installing Django.
+    """
+    if not plate_text or not isinstance(plate_text, str):
+        return {"plate": "", "vehicle": None, "driver": None, "message": "Invalid plate", "matched": False}
+
+    raw_cleaned = plate_text.strip().upper()
+    try:
+        from apps.violations.services import PlateResolutionService
+        res = PlateResolutionService.resolve_plate(raw_cleaned)
+        if isinstance(res, dict):
+            res["matched"] = bool(res.get("vehicle"))
+            return res
+    except Exception as django_exc:
+        logger.debug("Django PlateResolutionService unavailable (%s); using direct SQLite lookup.", django_exc)
+
+    # Direct SQLite query fallback
+    try:
+        import sqlite3
+        import re
+
+        compact = re.sub(r'[^A-Z0-9]', '', raw_cleaned)
+        if not compact:
+            return {"plate": raw_cleaned, "vehicle": None, "driver": None, "message": "Invalid plate format", "matched": False}
+
+        db_path = os.environ.get('SHARED_DB_PATH', '/shared_db/db.sqlite3')
+        if not os.path.exists(db_path):
+            alt_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'db.sqlite3')
+            if os.path.exists(alt_path):
+                db_path = alt_path
+
+        conn = sqlite3.connect(db_path, timeout=10.0)
+        cur = conn.cursor()
+        query = """
+            SELECT
+                v.id, v.plate_number, v.vehicle_type, v.color, v.make, v.model, v.year, v.is_active,
+                d.id, d.first_name, d.last_name, d.license_number
+            FROM violations_vehicle v
+            LEFT JOIN drivers_driver d ON v.driver_id = d.id
+            WHERE UPPER(REPLACE(REPLACE(v.plate_number, '-', ''), ' ', '')) = ?
+            LIMIT 1
+        """
+        cur.execute(query, (compact,))
+        row = cur.fetchone()
+        conn.close()
+
+        if not row:
+            return {
+                "plate": raw_cleaned,
+                "vehicle": None,
+                "driver": None,
+                "message": "Vehicle not registered",
+                "matched": False
+            }
+
+        (v_id, v_plate, v_type, v_color, v_make, v_model, v_year, v_active,
+         d_id, d_first, d_last, d_license) = row
+
+        vehicle_data = {
+            "id": v_id,
+            "plate_number": v_plate,
+            "vehicle_type": v_type,
+            "color": v_color,
+            "make": v_make,
+            "model": v_model,
+            "year": v_year,
+            "is_active": bool(v_active),
+        }
+
+        driver_data = None
+        if d_id:
+            driver_name = f"{d_first or ''} {d_last or ''}".strip()
+            driver_data = {
+                "id": d_id,
+                "full_name": driver_name,
+                "license_number": d_license,
+            }
+
+        return {
+            "plate": raw_cleaned,
+            "vehicle": vehicle_data,
+            "driver": driver_data,
+            "message": "Vehicle and driver found" if driver_data else "Vehicle found but no registered driver",
+            "matched": True
+        }
+    except Exception as exc:
+        logger.warning("Failed direct SQLite plate lookup for '%s': %s", raw_cleaned, exc)
+        return {
+            "plate": raw_cleaned,
+            "vehicle": None,
+            "driver": None,
+            "message": "Registry lookup failed",
+            "matched": False
+        }
+
+
 def analyze_frame(detections: list, frame: Any, frame_time: float, meters_per_pixel: float | None, state: Dict[str, Any]) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], Any, Dict[str, Any]]:
     """Analyze detections for a single frame.
 
@@ -79,13 +179,23 @@ def analyze_frame(detections: list, frame: Any, frame_time: float, meters_per_pi
             last_time[det.track_id] = frame_time
 
         plate_text = None
+        registry_resolution = None
         try:
             crop = frame[y1:y2, x1:x2]
             pil = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB))
             plate_text = _try_ocr_crop(pil)
             if plate_text:
                 label_parts.append(plate_text)
-                per_frame_events.append({'type': 'plate', 'track_id': det.track_id, 'plate': plate_text, 'time': frame_time})
+                # Resolve plate to Vehicle/Driver registry
+                registry_resolution = _resolve_plate_registry(plate_text)
+                per_frame_events.append({
+                    'type': 'plate',
+                    'track_id': det.track_id,
+                    'plate': plate_text,
+                    'time': frame_time,
+                    'vehicle': registry_resolution.get('vehicle'),
+                    'driver': registry_resolution.get('driver'),
+                })
         except Exception:
             plate_text = None
 
@@ -99,6 +209,8 @@ def analyze_frame(detections: list, frame: Any, frame_time: float, meters_per_pi
             'bbox': [float(det.bbox[0]), float(det.bbox[1]), float(det.bbox[2]), float(det.bbox[3])],
             'speed_kmh': float(speed_kmh) if speed_kmh is not None else None,
             'plate': plate_text,
+            'vehicle': registry_resolution.get('vehicle') if registry_resolution else None,
+            'driver': registry_resolution.get('driver') if registry_resolution else None,
             'violation': False,
         }
 
@@ -142,6 +254,10 @@ def analyze_frame(detections: list, frame: Any, frame_time: float, meters_per_pi
         if track['plate'] is None and plate_text:
             track['plate'] = plate_text
             track['plate_confidence'] = float(det.confidence) if hasattr(det, 'confidence') else None
+        # Add registry resolution to track if available
+        if registry_resolution:
+            track['vehicle'] = registry_resolution.get('vehicle')
+            track['driver'] = registry_resolution.get('driver')
 
         # simple violation rule: speed threshold
         if speed_kmh is not None and speed_kmh > 80:
